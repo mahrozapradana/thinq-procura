@@ -5,7 +5,7 @@ import { Toaster } from "sonner";
 import NotificationsBell from "@/components/NotificationsBell";
 import ThemeToggle from "@/components/ThemeToggle";
 import api from "@/lib/api";
-import { applyBrandColor } from "@/lib/brand";
+import { applyBrandPalette } from "@/lib/brand";
 import {
   LayoutDashboard, Package, Building2, Tag, Users, FileText,
   ClipboardList, Gavel, Warehouse, Wallet, Settings, LogOut,
@@ -28,9 +28,15 @@ export default function Layout({ children }) {
     return () => clearInterval(t);
   }, [isVendor]);
 
-  // Apply tenant brand color from company settings
+  const [brand, setBrand] = useState({});
+
+  // Apply tenant brand palette + logo from company settings
   useEffect(() => {
-    api.get("/settings/company").then(r => { if (r.data?.brand_color) applyBrandColor(r.data.brand_color); }).catch(()=>{});
+    api.get("/settings/company").then(r => {
+      const d = r.data || {};
+      setBrand({ logo: d.brand_logo_url, name: d.name });
+      applyBrandPalette({ primary: d.brand_color, warning: d.brand_warning_color, success: d.brand_success_color });
+    }).catch(()=>{});
   }, []);
 
   const Badge = ({ n }) => n > 0 ? <span className="ml-auto text-[10px] min-w-[16px] h-4 px-1 bg-red-500 text-white font-bold rounded-full flex items-center justify-center" data-testid="side-badge">{n > 99 ? "99+" : n}</span> : null;
@@ -45,8 +51,14 @@ export default function Layout({ children }) {
       {/* Sidebar */}
       <aside className="w-64 shrink-0 bg-slate-900 text-white flex flex-col" data-testid="sidebar">
         <div className="px-5 py-5 border-b border-white/10">
-          <div className="font-heading text-lg font-bold tracking-tight">PROCURA<span className="text-blue-400">.</span></div>
-          <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400 mt-1">E-Procurement Suite</div>
+          {brand.logo ? (
+            <img src={brand.logo} alt={brand.name || "logo"} className="max-h-10 max-w-[180px] object-contain"/>
+          ) : (
+            <>
+              <div className="font-heading text-lg font-bold tracking-tight">PROCURA<span className="text-blue-400">.</span></div>
+              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400 mt-1">E-Procurement Suite</div>
+            </>
+          )}
         </div>
         <nav className="flex-1 overflow-y-auto py-3">
             {isVendor ? (

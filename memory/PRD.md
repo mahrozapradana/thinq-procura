@@ -370,3 +370,38 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - P4: Multi-brand palette (primary/secondary/tertiary)
 - P5: Custom domain per-tenant + email template branding
 
+
+## Iteration 19 – 2026-02-18 (Logo Upload + Offline Cache + Palette Sekunder + Custom Domain)
+### Added
+- **Logo Upload ke Supabase**:
+  - Ganti input URL manual dengan `<input type="file">` di Settings > Company. Reuse endpoint `/api/uploads/attachment` (Supabase Storage bucket `ls-documents/attachments/{user_id}/`).
+  - Setelah upload, `brand_logo_url` di-set dengan public URL dan preview img langsung tampil.
+  - Layout.jsx sidebar menampilkan `<img src={brand.logo}>` (max h-10, max-w-180px) menggantikan "PROCURA." branding statis bila logo di-set.
+- **Offline Mode Enhanced (Service Worker v2)**:
+  - `public/service-worker.js` upgrade ke `epr-v2` + cache terpisah `epr-api-v1`.
+  - **Stale-while-revalidate** untuk API whitelist: PR, PO, vendors, products, departments, taxes, dashboard/stats.
+  - Cached response served instant, network fetcher jalan di background untuk refresh cache.
+  - Skip SSE + non-cacheable API (fetch normal).
+  - Fallback offline: return `{offline:true, items:[]}` dengan header `X-Offline:1` supaya UI bisa tampil dengan indicator.
+- **Palette Sekunder (White-Label Lengkap)**:
+  - `CompanySettingsIn.brand_warning_color` + `brand_success_color` (hex).
+  - `frontend/src/lib/brand.js`: refactor jadi `applyBrandPalette({primary, warning, success})` dengan hex→HSL converter DRY. Set CSS var `--brand-warning`, `--brand-warning-hsl`, `--brand-success`, `--brand-success-hsl` di `<html>`.
+  - Settings Company: 2 color pickers tambahan (Warna Warning + Warna Success) dengan live-preview inline hex.
+  - Layout mount pakai `applyBrandPalette` — otomatis apply semua 3 warna.
+- **Custom Domain Multi-Tenant**:
+  - `CompanySettingsIn.custom_domain` field (mis. `procura.acmegroup.co.id`).
+  - New doc `/app/CUSTOM_DOMAIN.md` — panduan lengkap: setup CNAME DNS, SSL (Let's Encrypt/managed), CORS update, brand sync, multi-tenant isolation roadmap (tenant_id per collection + middleware).
+  - Settings Company: input Custom Domain dengan link ke docs.
+
+### Verified
+- Backend PUT `/settings/company` returns `brand #0EA5E9 warn #F97316 succ #10B981 domain procura.acmegroup.co.id` ✓
+- Screenshot Settings dark mode: 3 color pickers (biru/orange/green) + Logo Brand upload button + Custom Domain input + link ke `CUSTOM_DOMAIN.md` ✓
+- Sidebar: badges "1" di PR/PO/Penerimaan/Customs + "2" di Tender ✓
+- Files: manifest.json (653B), service-worker.js (2.1KB v2), CUSTOM_DOMAIN.md (3KB) ✓
+
+### Backlog / Next
+- P4: Auto DNS setup wizard (integrasi Cloudflare API) supaya user tidak perlu manual CNAME
+- P4: Preview brand palette live di seluruh UI tanpa refresh saat pilih warna
+- P4: Signed URL untuk logo di Supabase bila tenant butuh privasi
+- P5: A/B test dashboard analytics tenant-scoped
+

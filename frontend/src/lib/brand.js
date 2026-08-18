@@ -1,10 +1,8 @@
 /**
- * Applies brand color from company_settings to CSS variables globally.
- * Called on Layout mount so entire UI reflects tenant brand.
+ * Applies brand palette from company_settings to CSS variables globally.
  */
-export function applyBrandColor(hex) {
-  if (!hex || !/^#([0-9a-f]{3}){1,2}$/i.test(hex)) return;
-  // Convert hex → HSL for shadcn CSS var format "H S% L%"
+function hexToHSL(hex) {
+  if (!hex || !/^#([0-9a-f]{3}){1,2}$/i.test(hex)) return null;
   let h = hex.replace("#", "");
   if (h.length === 3) h = h.split("").map(c => c + c).join("");
   const r = parseInt(h.slice(0, 2), 16) / 255;
@@ -22,10 +20,27 @@ export function applyBrandColor(hex) {
       case b: hue = ((r - g) / d + 4) * 60; break;
     }
   }
-  const H = Math.round(hue);
-  const S = Math.round(s * 100);
-  const L = Math.round(l * 100);
-  document.documentElement.style.setProperty("--accent", `${H} ${S}% ${L}%`);
-  document.documentElement.style.setProperty("--ring", `${H} ${S}% ${L}%`);
+  return `${Math.round(hue)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
+}
+
+export function applyBrandColor(hex) {
+  const hsl = hexToHSL(hex);
+  if (!hsl) return;
+  document.documentElement.style.setProperty("--accent", hsl);
+  document.documentElement.style.setProperty("--ring", hsl);
   document.documentElement.style.setProperty("--brand", hex);
+}
+
+export function applyBrandPalette({ primary, warning, success } = {}) {
+  if (primary) applyBrandColor(primary);
+  const w = hexToHSL(warning);
+  if (w) {
+    document.documentElement.style.setProperty("--brand-warning", warning);
+    document.documentElement.style.setProperty("--brand-warning-hsl", w);
+  }
+  const s = hexToHSL(success);
+  if (s) {
+    document.documentElement.style.setProperty("--brand-success", success);
+    document.documentElement.style.setProperty("--brand-success-hsl", s);
+  }
 }

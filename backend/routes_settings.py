@@ -26,8 +26,11 @@ class CompanySettingsIn(BaseModel):
     email: Optional[str] = None
     reapproval_threshold_pct: float = 5.0
     exchange_rates: Optional[dict] = None
-    brand_color: Optional[str] = None  # hex e.g. #2563EB — used for white-label theming
+    brand_color: Optional[str] = None
     brand_logo_url: Optional[str] = None
+    brand_warning_color: Optional[str] = None  # secondary palette
+    brand_success_color: Optional[str] = None
+    custom_domain: Optional[str] = None  # e.g. procura.perusahaan.com
 
 
 @router.get("/settings/company")

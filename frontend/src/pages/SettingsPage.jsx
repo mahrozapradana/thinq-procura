@@ -96,16 +96,46 @@ export default function SettingsPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="label-tiny">Warna Brand (White-Label)</Label>
+                <Label className="label-tiny">Warna Brand Utama (Accent)</Label>
                 <div className="flex items-center gap-2">
                   <input type="color" value={c.brand_color||"#2563EB"} onChange={e=>{ setC({...c, brand_color: e.target.value}); import("@/lib/brand").then(m=>m.applyBrandColor(e.target.value)); }} className="w-16 h-10 rounded cursor-pointer border border-slate-200" data-testid="cs-brand-color"/>
                   <Input value={c.brand_color||"#2563EB"} onChange={e=>{ setC({...c, brand_color: e.target.value}); if(/^#[0-9a-f]{6}$/i.test(e.target.value)) import("@/lib/brand").then(m=>m.applyBrandColor(e.target.value)); }} placeholder="#2563EB" data-testid="cs-brand-hex" className="font-mono"/>
                 </div>
-                <div className="text-[10px] text-slate-500 mt-1">Diterapkan ke seluruh UI: tombol, badge, accent, ring.</div>
               </div>
               <div>
-                <Label className="label-tiny">URL Logo (opsional)</Label>
-                <Input value={c.brand_logo_url||""} onChange={e=>setC({...c, brand_logo_url: e.target.value})} placeholder="https://.../logo.png" data-testid="cs-brand-logo"/>
+                <Label className="label-tiny">Logo Brand (untuk sidebar & topbar)</Label>
+                <input type="file" accept=".png,.jpg,.jpeg,.webp,.svg" onChange={async(e)=>{
+                  const f=e.target.files?.[0]; if(!f) return;
+                  const fd=new FormData(); fd.append("file",f);
+                  const t=localStorage.getItem("access_token");
+                  const r=await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/uploads/attachment`,{method:"POST",credentials:"include",headers:t?{Authorization:`Bearer ${t}`}:{},body:fd});
+                  const d=await r.json();
+                  if(!r.ok) return toast.error(d.detail);
+                  setC({...c, brand_logo_url: d.url});
+                  toast.success("Logo brand terupload — jangan lupa Simpan Perusahaan");
+                }} data-testid="cs-brand-logo-upload" className="mt-1 block text-xs"/>
+                {c.brand_logo_url && <img src={c.brand_logo_url} alt="brand" className="mt-2 h-8 rounded border border-slate-200"/>}
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label className="label-tiny">Warna Warning (Palette Sekunder)</Label>
+                <div className="flex items-center gap-2">
+                  <input type="color" value={c.brand_warning_color||"#F59E0B"} onChange={e=>{ setC({...c, brand_warning_color: e.target.value}); import("@/lib/brand").then(m=>m.applyBrandPalette({warning: e.target.value})); }} className="w-14 h-9 rounded cursor-pointer border border-slate-200" data-testid="cs-brand-warning"/>
+                  <span className="font-mono text-xs">{c.brand_warning_color||"#F59E0B"}</span>
+                </div>
+              </div>
+              <div>
+                <Label className="label-tiny">Warna Success</Label>
+                <div className="flex items-center gap-2">
+                  <input type="color" value={c.brand_success_color||"#10B981"} onChange={e=>{ setC({...c, brand_success_color: e.target.value}); import("@/lib/brand").then(m=>m.applyBrandPalette({success: e.target.value})); }} className="w-14 h-9 rounded cursor-pointer border border-slate-200" data-testid="cs-brand-success"/>
+                  <span className="font-mono text-xs">{c.brand_success_color||"#10B981"}</span>
+                </div>
+              </div>
+              <div>
+                <Label className="label-tiny">Custom Domain (subdomain tenant)</Label>
+                <Input value={c.custom_domain||""} onChange={e=>setC({...c, custom_domain: e.target.value})} placeholder="procura.perusahaan.com" data-testid="cs-custom-domain" className="font-mono text-xs"/>
+                <div className="text-[10px] text-slate-500 mt-1">Setup DNS CNAME — lihat <code>CUSTOM_DOMAIN.md</code></div>
               </div>
             </div>
             <div><Label className="label-tiny">Alamat</Label><Textarea value={c.address||""} onChange={e=>setC({...c,address:e.target.value})} data-testid="cs-address"/></div>
