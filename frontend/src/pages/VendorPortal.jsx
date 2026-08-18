@@ -11,6 +11,7 @@ import { Send, XCircle, Plus, FileUp, Upload, Eye, Clock } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import Pagination from "@/components/Pagination";
 import ExportCsvButton from "@/components/ExportCsvButton";
+import { useDataTable } from "@/components/useDataTable";
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 async function uploadFile(file) {
@@ -190,12 +191,19 @@ export function VendorPOs() {
   const perPage = 10;
   const load = () => api.get("/vendor-portal/pos").then(r=>setRows(r.data));
   useEffect(()=>{ load(); },[]);
-  const total = rows.length;
+  const dt = useDataTable(rows, { storageKey: "vendor-pos", defaultSort: { key: "created_at", dir: "desc" } });
+  const total = dt.sortedRows.length;
   const pages = Math.max(1, Math.ceil(total/perPage));
-  const paged = rows.slice((page-1)*perPage, page*perPage);
+  const paged = dt.sortedRows.slice((page-1)*perPage, page*perPage);
   const acknowledge = async (id) => {
     try { await api.post(`/vendor-portal/pos/${id}/acknowledge`); toast.success("PO dikonfirmasi"); load(); }
     catch(e){ toast.error(e.response?.data?.detail || "Gagal"); }
+  };
+  const bulkAck = async (ids, clear) => {
+    let done = 0;
+    for (const id of ids) { try { await api.post(`/vendor-portal/pos/${id}/acknowledge`); done++; } catch {} }
+    toast.success(`${done}/${ids.length} PO dikonfirmasi`);
+    clear(); load();
   };
   return (
     <div className="space-y-4" data-testid="vendor-pos">
@@ -207,9 +215,31 @@ export function VendorPOs() {
         ]}/>
       </div>
       <p className="text-xs text-slate-500">Hanya PO yang sudah disetujui procurement & ditujukan pada perusahaan Anda. Read-only.</p>
+      <dt.SavedViewsBar/>
+      <dt.BulkToolbar actions={[
+        { key: "ack", label: "✓ Konfirmasi Semua", onClick: bulkAck },
+        { key: "export", label: "Export Terpilih", className: "bg-blue-500 hover:bg-blue-600 text-white", onClick: (ids)=>{
+          const sel = rows.filter(r=>ids.includes(r.id));
+          const csv = "po_number,total,status\n" + sel.map(r=>`${r.po_number},${r.amount_total||r.total},${r.status}`).join("\n");
+          const blob = new Blob([csv], {type:"text/csv"});
+          const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="pos-selected.csv"; a.click();
+        }},
+      ]}/>
       <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
-          <thead><tr><th>No PO</th><th>Type</th><th>Untaxed</th><th>Pajak</th><th>Grand Total</th><th>Status</th><th>Ack</th><th>Shipping</th><th></th></tr></thead>
+          <thead>
+            <tr>
+              <th style={{width:32}}><dt.SelectAllCheckbox/></th>
+              <dt.SortHeader k="po_number">No PO</dt.SortHeader>
+              <dt.SortHeader k="po_type">Type</dt.SortHeader>
+              <dt.SortHeader k="amount_total">Grand Total</dt.SortHeader>
+              <dt.SortHeader k="status">Status</dt.SortHeader>
+              <dt.SortHeader k="shipping_status">Shipping</dt.SortHeader>
+              <th>Ack</th>
+              <th></th>
+            </tr>
+            <dt.FilterRow cols={[{filter:false},{key:"po_number",label:"No PO"},{key:"po_type",label:"Type"},{filter:false},{key:"status",label:"Status"},{key:"shipping_status",label:"Ship"},{filter:false},{filter:false}]}/>
+          </thead>
           <tbody>
             {rows.length===0 && <tr><td colSpan={9} className="text-center py-6 text-slate-400">Belum ada PO aktif</td></tr>}
             {paged.map(p=>(
