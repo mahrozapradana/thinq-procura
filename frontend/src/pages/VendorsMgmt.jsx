@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Check, X, UserCheck } from "lucide-react";
+import { Check, X, UserCheck, Star } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -39,15 +39,24 @@ export default function VendorsMgmt() {
       </div>
       <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
         <table className="data-table">
-          <thead><tr><th>Perusahaan</th><th>Kontak</th><th>Email</th><th>NPWP</th><th>Importir</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Perusahaan</th><th>Kontak</th><th>Email</th><th>NPWP</th><th>Rating</th><th>Importir</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            {rows.length===0 && <tr><td colSpan={7} className="text-center py-6 text-slate-400">Belum ada vendor</td></tr>}
+            {rows.length===0 && <tr><td colSpan={8} className="text-center py-6 text-slate-400">Belum ada vendor</td></tr>}
             {rows.map(v=>(
               <tr key={v.id} data-testid={`vendor-row-${v.id}`}>
                 <td className="font-semibold">{v.company_name}</td>
                 <td>{v.name}</td>
                 <td className="text-xs">{v.email}</td>
                 <td className="text-xs font-mono">{v.npwp||"-"}</td>
+                <td>
+                  {v.avg_rating ? (
+                    <div className="flex items-center gap-1">
+                      {[1,2,3,4,5].map(n=>(<Star key={n} size={12} className={n <= Math.round(v.avg_rating) ? "text-amber-500 fill-amber-500" : "text-slate-200"}/>))}
+                      <span className="text-xs ml-1 font-mono">{v.avg_rating}</span>
+                      <span className="text-[10px] text-slate-400">({v.ratings_count||0})</span>
+                    </div>
+                  ) : <span className="text-xs text-slate-400">-</span>}
+                </td>
                 <td>{v.is_importer ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold uppercase">Importir</span> : "-"}</td>
                 <td><span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS[v.status]}`}>{v.status}</span></td>
                 <td className="text-right whitespace-nowrap">

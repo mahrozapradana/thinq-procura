@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import api, { fmtIDR } from "@/lib/api";
-import { ArrowUpRight, Wallet, ClipboardList, FileText, Gavel, Users } from "lucide-react";
+import { ArrowUpRight, Wallet, ClipboardList, FileText, Gavel, Users, TrendingDown, AlertTriangle } from "lucide-react";
 import { Link } from "react-router-dom";
 
 function Kpi({ label, value, hint, icon:Icon, testid }) {
@@ -18,7 +18,11 @@ function Kpi({ label, value, hint, icon:Icon, testid }) {
 
 export default function Dashboard() {
   const [s, setS] = useState(null);
-  useEffect(() => { api.get("/dashboard/stats").then(r => setS(r.data)); }, []);
+  const [forecast, setForecast] = useState([]);
+  useEffect(() => {
+    api.get("/dashboard/stats").then(r => setS(r.data));
+    api.get("/dashboard/budget-forecast").then(r => setForecast(r.data));
+  }, []);
   if (!s) return <div className="text-sm text-slate-500">Memuat dashboard...</div>;
 
   return (
@@ -60,6 +64,35 @@ export default function Dashboard() {
           <p className="text-xs text-slate-300 mt-3">Dokumen LS, HS Code, dan pemisahan PO Lokal vs Bonded sudah terintegrasi.</p>
           <Link to="/settings" className="mt-4 inline-flex text-xs bg-white/10 px-3 py-2 rounded hover:bg-white/20">Setting Perusahaan →</Link>
         </div>
+      </div>
+
+      {/* Budget Forecast */}
+      <div className="bg-white border border-slate-200 rounded-md" data-testid="budget-forecast">
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <div className="label-tiny">Forecast</div>
+            <div className="font-heading text-lg font-bold flex items-center gap-2"><TrendingDown size={18}/> Budget Exhaustion Forecast</div>
+            <div className="text-xs text-slate-500">Prediksi berdasarkan burn rate 90 hari terakhir. Warning otomatis untuk yang habis dalam ≤30 hari.</div>
+          </div>
+        </div>
+        <table className="data-table">
+          <thead><tr><th>Department</th><th>Product</th><th>Periode</th><th>Sisa</th><th>Burn / bulan</th><th>Sisa Hari</th><th>Est. Habis</th><th>Warning</th></tr></thead>
+          <tbody>
+            {forecast.length === 0 && <tr><td colSpan={8} className="text-center py-6 text-slate-400">Belum ada data untuk forecast</td></tr>}
+            {forecast.map(f => (
+              <tr key={f.budget_id} data-testid={`forecast-row-${f.budget_id}`} className={f.days_to_exhaust && f.days_to_exhaust <= 30 ? "bg-red-50" : ""}>
+                <td>{f.department}</td>
+                <td>{f.product}</td>
+                <td className="font-mono text-xs">{f.period}</td>
+                <td className="font-mono">{fmtIDR(f.available)}</td>
+                <td className="font-mono text-slate-600">{fmtIDR(f.avg_monthly_burn)}</td>
+                <td className="font-mono">{f.days_to_exhaust != null ? `${f.days_to_exhaust} hr` : "-"}</td>
+                <td className="text-xs">{f.projected_exhaust_date || "-"}</td>
+                <td className="text-xs">{f.warning ? <span className={f.warning.startsWith("❌") ? "text-red-600 font-semibold" : "text-amber-600 font-semibold flex items-center gap-1"}><AlertTriangle size={12}/> {f.warning.replace(/^[⚠️❌]\s?/, "")}</span> : <span className="text-emerald-600 text-xs">On track</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

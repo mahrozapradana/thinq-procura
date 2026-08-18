@@ -278,6 +278,7 @@ class PRIn(BaseModel):
     procurement_type: str = "DIRECT"  # DIRECT | TENDER
     is_bonded: bool = False
     notes: Optional[str] = None
+    attachments: List[dict] = Field(default_factory=list)
 
 
 @router.get("/prs")
@@ -323,6 +324,7 @@ async def create_pr(payload: PRIn, user=Depends(get_current_active_user)):
         "procurement_type": payload.procurement_type,
         "is_bonded": payload.is_bonded,
         "notes": payload.notes,
+        "attachments": payload.attachments,
         "status": "pending_approval" if steps else "approved",
         "approvals": steps,
         "current_level": 1 if steps else 0,
@@ -537,6 +539,102 @@ async def award_tender(tid: str, vendor_id: str, user=Depends(get_current_active
 
 
 # ---------- Dashboard ----------
+@router.get("/dashboard/budget-forecast")
+async def budget_forecast(user=Depends(get_current_active_user)):
+    """Per-budget projection: average monthly burn from last 90d PRs → projected exhaust date."""
+    from datetime import datetime, timedelta, timezone
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    cutoff = (now - timedelta(days=90)).isoformat()
+    budgets = await db.budgets.find({"status": "approved"}, {"_id": 0}).to_list(1000)
+    depts = {d["id"]: d.get("name") for d in await db.departments.find({}, {"_id": 0}).to_list(500)}
+    products = {p["id"]: p.get("name") for p in await db.products.find({}, {"_id": 0}).to_list(2000)}
+    result = []
+    for b in budgets:
+        prs = await db.prs.find({
+            "department_id": b["department_id"],
+            "status": {"$in": ["approved", "converted_to_po"]},
+            "created_at": {"$gte": cutoff},
+        }, {"_id": 0}).to_list(2000)
+        # Attribute PR consumption to this budget via budget_map
+        recent_burn = 0.0
+        for pr in prs:
+            bm = pr.get("budget_map") or {}
+            if b["id"] in bm:
+                recent_burn += float(bm[b["id"]])
+        avg_monthly_burn = recent_burn / 3.0 if recent_burn else 0.0
+        available = float(b["amount"]) - float(b.get("used_amount") or 0)
+        days_to_exhaust = None
+        projected_date = None
+        warning = None
+        if avg_monthly_burn > 0 and available > 0:
+            days_to_exhaust = int((available / avg_monthly_burn) * 30)
+            projected_date = (now + timedelta(days=days_to_exhaust)).date().isoformat()
+            if days_to_exhaust <= 30:
+                warning = f"⚠️ Diprediksi habis dalam {days_to_exhaust} hari"
+        elif available <= 0:
+            warning = "❌ Budget sudah habis"
+        result.append({
+            "budget_id": b["id"],
+            "department": depts.get(b["department_id"], "-"),
+            "product": products.get(b.get("product_id"), "SEMUA") if b.get("product_id") else "SEMUA",
+            "period": b.get("period"),
+            "amount": float(b["amount"]),
+            "used_amount": float(b.get("used_amount") or 0),
+            "available": available,
+            "avg_monthly_burn": avg_monthly_burn,
+            "days_to_exhaust": days_to_exhaust,
+            "projected_exhaust_date": projected_date,
+            "warning": warning,
+        })
+    return result
+
+
+# ---------- Vendor Rating ----------
+class RateIn(BaseModel):
+    rating: int  # 1-5
+    note: Optional[str] = None
+
+
+@router.post("/pos/{po_id}/rate")
+async def rate_po(po_id: str, payload: RateIn, user=Depends(get_current_active_user)):
+    if user["role"] not in ("admin", "procurement", "warehouse"):
+        raise HTTPException(403, "Not allowed")
+    if not (1 <= payload.rating <= 5):
+        raise HTTPException(400, "Rating harus 1-5")
+    db = get_db()
+    po = await db.pos.find_one({"id": po_id})
+    if not po:
+        raise HTTPException(404, "PO not found")
+    if po.get("status") != "completed":
+        raise HTTPException(400, "Vendor hanya dapat dinilai setelah PO completed")
+    entry = {
+        "po_id": po_id,
+        "po_number": po.get("po_number"),
+        "rating": payload.rating,
+        "note": payload.note,
+        "by": user["id"],
+        "by_name": user["name"],
+        "at": now_iso(),
+    }
+    # Push rating and recompute avg
+    await db.vendors.update_one(
+        {"id": po["vendor_id"]},
+        {"$pull": {"ratings": {"po_id": po_id}}},
+    )
+    await db.vendors.update_one(
+        {"id": po["vendor_id"]},
+        {"$push": {"ratings": entry}},
+    )
+    v = await db.vendors.find_one({"id": po["vendor_id"]})
+    ratings = v.get("ratings") or []
+    avg = sum(r["rating"] for r in ratings) / len(ratings) if ratings else 0
+    await db.vendors.update_one({"id": po["vendor_id"]}, {"$set": {"avg_rating": round(avg, 2), "ratings_count": len(ratings)}})
+    await db.pos.update_one({"id": po_id}, {"$set": {"vendor_rating": payload.rating, "vendor_rating_note": payload.note}})
+    return {"ok": True, "avg_rating": round(avg, 2), "count": len(ratings)}
+
+
+# ---------- Dashboard stats (original) ----------
 @router.get("/dashboard/stats")
 async def dashboard_stats(user=Depends(get_current_active_user)):
     db = get_db()

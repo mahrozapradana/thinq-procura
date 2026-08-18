@@ -8,7 +8,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Merge, Check, X, Eye, Send, Download } from "lucide-react";
+import { Merge, Check, X, Eye, Send, Download, Star } from "lucide-react";
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 async function downloadReport(path, filename) {
@@ -37,6 +37,8 @@ export default function PurchaseOrders() {
   const [mergeOpen, setMergeOpen] = useState(false);
   const [selected, setSelected] = useState({});
   const [form, setForm] = useState({ po_type: "LOCAL" });
+  const [rating, setRating] = useState(0);
+  const [ratingNote, setRatingNote] = useState("");
 
   const load = () => {
     api.get("/pos").then(r=>setPos(r.data));
@@ -56,6 +58,17 @@ export default function PurchaseOrders() {
   const approve = async (id) => { await api.post(`/pos/${id}/approve`); toast.success("Approved"); load(); };
   const reject = async (id) => { await api.post(`/pos/${id}/reject`); toast.success("Rejected"); load(); };
   const send = async (id) => { await api.post(`/pos/${id}/send`); toast.success("PO dikirim ke vendor"); load(); };
+  const submitRating = async () => {
+    try {
+      const r = await api.post(`/pos/${detail.id}/rate`, { rating, note: ratingNote });
+      toast.success(`Rating tersimpan. Rata-rata: ${r.data.avg_rating}★ (${r.data.count})`);
+      setRating(0); setRatingNote("");
+      // refresh detail
+      const upd = await api.get(`/pos/${detail.id}`);
+      setDetail(upd.data);
+      load();
+    } catch(e) { toast.error(e.response?.data?.detail); }
+  };
 
   return (
     <div className="space-y-4" data-testid="po-page">
@@ -175,6 +188,34 @@ export default function PurchaseOrders() {
                   <div className="p-3 bg-blue-50 border border-blue-200 rounded">
                     <div className="label-tiny text-blue-700">Kepabeanan / Kawasan Berikat</div>
                     <div className="text-sm text-slate-700 mt-1">PO ini termasuk BONDED. Vendor wajib melampirkan dokumen LS & HS Code saat submit invoice.</div>
+                  </div>
+                )}
+                {detail.status === "completed" && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded" data-testid="rate-vendor-section">
+                    <div className="label-tiny text-amber-800">Vendor Performance Rating</div>
+                    {detail.vendor_rating ? (
+                      <div className="mt-2 text-sm">
+                        <div className="flex items-center gap-1">
+                          {[1,2,3,4,5].map(n=>(<Star key={n} size={16} className={n <= detail.vendor_rating ? "text-amber-500 fill-amber-500" : "text-slate-300"}/>))}
+                          <span className="ml-2 font-semibold">{detail.vendor_rating}/5</span>
+                        </div>
+                        {detail.vendor_rating_note && <div className="text-xs text-slate-600 mt-1">"{detail.vendor_rating_note}"</div>}
+                        <button className="text-xs text-blue-600 mt-2" onClick={()=>setRating(0)} data-testid="rate-vendor-edit">Ubah rating</button>
+                      </div>
+                    ) : (
+                      <div className="mt-2 space-y-2">
+                        <div className="flex items-center gap-1">
+                          {[1,2,3,4,5].map(n=>(
+                            <button key={n} onClick={()=>setRating(n)} data-testid={`rate-star-${n}`}>
+                              <Star size={22} className={n <= rating ? "text-amber-500 fill-amber-500" : "text-slate-300"}/>
+                            </button>
+                          ))}
+                          {rating>0 && <span className="ml-2 text-sm font-semibold">{rating}/5</span>}
+                        </div>
+                        <input type="text" placeholder="Catatan (opsional)" value={ratingNote} onChange={e=>setRatingNote(e.target.value)} className="w-full text-sm border border-slate-200 rounded px-2 py-1" data-testid="rate-note"/>
+                        <button disabled={!rating} onClick={submitRating} className="text-sm bg-slate-900 text-white px-3 py-1.5 rounded disabled:opacity-50" data-testid="rate-submit">Simpan Rating</button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

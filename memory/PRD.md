@@ -93,3 +93,15 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 
 ### Tests
 - All previous 65 tests still pass. New: manual verification of cron auth + budget preview endpoint via curl + UI screenshot.
+
+## Iteration 4 – 2026-02-14
+### Added
+- **Vendor Rating**: POST /api/pos/{id}/rate (only when PO completed). Ratings stored on vendor doc + avg_rating recomputed. PO detail sheet now shows star input when completed and displays saved rating. Vendors list shows avg stars + count.
+- **PR Attachments**: New POST /api/uploads/attachment (Supabase). PRIn model accepts attachments[]. PR create dialog: multi-file input + inline list with remove. Detail sheet lists attachments as clickable links.
+- **Budget Forecast**: GET /api/dashboard/budget-forecast — per-budget 90-day burn analysis via PR budget_map. Dashboard shows a table with sisa, monthly burn, days-to-exhaust, projected date, warning highlight (red row) when ≤30 days.
+- **SMTP Live**: info@thinq-tech.id smtp.gmail.com:465 SSL configured & enabled. Test email verified sent.
+
+### Verified
+- SMTP send email OK
+- Budget forecast endpoint OK
+- SMTP password masked as '*'

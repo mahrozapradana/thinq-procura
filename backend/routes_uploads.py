@@ -61,3 +61,43 @@ async def upload_ls_file(file: UploadFile = File(...), user=Depends(get_current_
         "size": len(content),
         "content_type": file.content_type,
     }
+
+
+@router.post("/uploads/attachment")
+async def upload_attachment(file: UploadFile = File(...), user=Depends(get_current_active_user)):
+    """General attachment upload (e.g. PR quotes/specs). Same bucket, 'attachments' prefix."""
+    url, key, bucket = _supabase_conf()
+    if not url or not key:
+        raise HTTPException(500, "Supabase belum dikonfigurasi.")
+    if file.size and file.size > 10 * 1024 * 1024:
+        raise HTTPException(400, "Ukuran file maks 10MB")
+    ext = os.path.splitext(file.filename or "")[1].lower() or ".bin"
+    if ext not in (".pdf", ".png", ".jpg", ".jpeg", ".webp", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".csv"):
+        raise HTTPException(400, f"Ekstensi {ext} tidak diperbolehkan")
+    key_path = f"attachments/{user['id']}/{uuid.uuid4().hex}{ext}"
+    content = await file.read()
+    upload_url = f"{url}/storage/v1/object/{bucket}/{key_path}"
+    r = requests.post(
+        upload_url,
+        data=content,
+        headers={
+            "Authorization": f"Bearer {key}",
+            "apikey": key,
+            "Content-Type": file.content_type or "application/octet-stream",
+            "x-upsert": "true",
+        },
+        timeout=30,
+    )
+    if r.status_code >= 300:
+        raise HTTPException(
+            status_code=424,
+            detail=f"Upload gagal ({r.status_code}). Pastikan bucket '{bucket}' ada. Detail: {r.text[:200]}",
+        )
+    return {
+        "ok": True,
+        "url": f"{url}/storage/v1/object/public/{bucket}/{key_path}",
+        "path": key_path,
+        "filename": file.filename,
+        "size": len(content),
+        "content_type": file.content_type,
+    }

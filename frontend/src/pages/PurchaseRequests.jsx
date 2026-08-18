@@ -35,7 +35,7 @@ export default function PurchaseRequests() {
   const [deptBudgets, setDeptBudgets] = useState([]);
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState(null);
-  const [form, setForm] = useState({ items: [], procurement_type:"DIRECT", is_bonded: false });
+  const [form, setForm] = useState({ items: [], procurement_type:"DIRECT", is_bonded: false, attachments: [] });
 
   const load = () => api.get("/prs").then(r=>setRows(r.data));
   useEffect(() => {
@@ -74,7 +74,7 @@ export default function PurchaseRequests() {
         return { ...it, qty: parseFloat(it.qty), price: parseFloat(it.price), product_name: p?.name, hs_code: p?.hs_code_id };
       }) };
       await api.post("/prs", payload);
-      toast.success("PR dibuat"); setOpen(false); setForm({items:[],procurement_type:"DIRECT",is_bonded:false}); load();
+      toast.success("PR dibuat"); setOpen(false); setForm({items:[],procurement_type:"DIRECT",is_bonded:false,attachments:[]}); load();
     } catch(e){ toast.error(e.response?.data?.detail); }
   };
   const approve = async (id) => { await api.post(`/prs/${id}/approve`); toast.success("Approved"); load(); if(detail) refresh(id); };
@@ -175,6 +175,38 @@ export default function PurchaseRequests() {
               )}
 
               <div><Label className="label-tiny">Catatan</Label><Textarea value={form.notes||""} onChange={e=>setForm({...form,notes:e.target.value})} data-testid="pr-notes"/></div>
+
+              <div>
+                <Label className="label-tiny">Attachments (quote, spec, drawing) - opsional</Label>
+                <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv"
+                  onChange={async (e)=>{
+                    const files = Array.from(e.target.files || []);
+                    for (const f of files) {
+                      try {
+                        toast.info(`Uploading ${f.name}…`);
+                        const fd = new FormData(); fd.append("file", f);
+                        const t = localStorage.getItem("access_token");
+                        const r = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/uploads/attachment`, { method: "POST", credentials: "include", headers: t ? { Authorization: `Bearer ${t}` } : {}, body: fd });
+                        const d = await r.json();
+                        if(!r.ok) throw new Error(d.detail || "Upload gagal");
+                        setForm(prev => ({...prev, attachments:[...(prev.attachments||[]), { url: d.url, filename: d.filename, size: d.size, content_type: d.content_type }]}));
+                      } catch(err){ toast.error(err.message); }
+                    }
+                    e.target.value = "";
+                  }}
+                  data-testid="pr-attach-input"
+                  className="mt-1 block w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:bg-slate-900 file:text-white file:font-semibold file:cursor-pointer"/>
+                {form.attachments?.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {form.attachments.map((a,i)=>(
+                      <li key={i} className="flex items-center justify-between text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1" data-testid={`pr-attach-item-${i}`}>
+                        <a href={a.url} target="_blank" rel="noreferrer" className="text-blue-600 underline truncate">{a.filename}</a>
+                        <button onClick={()=>setForm(prev=>({...prev, attachments: prev.attachments.filter((_,idx)=>idx!==i)}))} className="text-red-500 ml-2">×</button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
             <DialogFooter><Button onClick={submit} disabled={!form.items.length || !form.department_id} data-testid="pr-save">Buat PR</Button></DialogFooter>
           </DialogContent>
@@ -245,6 +277,16 @@ export default function PurchaseRequests() {
                   <div className="text-sm">Status: <span className="font-semibold">{detail.warehouse_status || "not_received"}</span></div>
                   <div className="text-sm">PO: <span className="font-mono">{detail.po_id || "-"}</span></div>
                 </div>
+                {detail.attachments?.length > 0 && (
+                  <div>
+                    <div className="label-tiny mb-2">Attachments</div>
+                    <ul className="space-y-1">
+                      {detail.attachments.map((a,i)=>(
+                        <li key={i} className="text-xs"><a href={a.url} target="_blank" rel="noreferrer" className="text-blue-600 underline">{a.filename}</a> <span className="text-slate-400">{a.size ? `(${Math.round(a.size/1024)} KB)` : ""}</span></li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             </>
           )}
