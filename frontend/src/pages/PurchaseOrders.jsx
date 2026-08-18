@@ -253,6 +253,74 @@ export default function PurchaseOrders() {
                     <div className="flex justify-between border-t pt-1 mt-1 font-bold"><span>Grand Total</span><span className="font-mono">{fmtIDR(detail.amount_total || detail.total)}</span></div>
                   </div>
                 </div>
+                {detail.vendor_reply && (
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded" data-testid="po-vendor-reply">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <div className="label-tiny text-blue-800">Balasan Vendor {detail.vendor_reply.vendor_name && `— ${detail.vendor_reply.vendor_name}`}</div>
+                        <div className="text-xs text-slate-600 mt-1">
+                          {detail.vendor_reply.can_fulfill ? "✓ Vendor menyatakan bisa memenuhi" : "✗ Vendor menolak"}
+                          {detail.vendor_reply.delivery_days ? ` · Estimasi ${detail.vendor_reply.delivery_days} hari` : ""}
+                          {detail.vendor_reply.submitted_at ? ` · ${new Date(detail.vendor_reply.submitted_at).toLocaleString("id-ID")}` : ""}
+                        </div>
+                      </div>
+                      {!detail.vendor_reply_accepted_at && !detail.vendor_reply_rejected_at && detail.vendor_reply.can_fulfill && (
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={async ()=>{
+                            try { const r=await api.post(`/pos/${detail.id}/accept-vendor-reply`);
+                              toast.success(r.data.reapproved ? `Diterima. Perubahan ${r.data.delta_pct.toFixed(1)}% > 5% → approval diulang.` : "Balasan diterima");
+                              const upd=await api.get(`/pos/${detail.id}`); setDetail(upd.data); load();
+                            } catch(e){ toast.error(e.response?.data?.detail); }
+                          }} data-testid="po-accept-reply" className="bg-emerald-600 hover:bg-emerald-700">Terima</Button>
+                          <Button size="sm" variant="outline" onClick={async ()=>{
+                            try { await api.post(`/pos/${detail.id}/reject-vendor-reply`);
+                              toast.success("Balasan ditolak");
+                              const upd=await api.get(`/pos/${detail.id}`); setDetail(upd.data); load();
+                            } catch(e){ toast.error(e.response?.data?.detail); }
+                          }} data-testid="po-reject-reply">Tolak</Button>
+                        </div>
+                      )}
+                      {detail.vendor_reply_accepted_at && <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">Diterima</span>}
+                    </div>
+                    {detail.vendor_reply.can_fulfill && (detail.vendor_reply.items||[]).length>0 && (
+                      <div className="mt-3 border border-blue-200 rounded bg-white overflow-hidden">
+                        <table className="data-table">
+                          <thead><tr><th>Item</th><th>Harga Asli</th><th>Counter Vendor</th><th>Δ</th><th>Catatan Vendor</th></tr></thead>
+                          <tbody>
+                            {detail.vendor_reply.items.map((r,i)=>{
+                              const orig = detail.items?.[r.item_index];
+                              const origPrice = orig?.price || 0;
+                              const delta = origPrice ? ((r.price - origPrice)/origPrice*100) : 0;
+                              const isBig = Math.abs(delta) > 5;
+                              return (
+                                <tr key={i} data-testid={`po-reply-item-${i}`}>
+                                  <td className="text-xs">{orig?.product_name || `#${r.item_index}`}</td>
+                                  <td className="font-mono text-xs">{fmtIDR(origPrice)}</td>
+                                  <td className="font-mono text-xs font-semibold">{fmtIDR(r.price)}</td>
+                                  <td className={`text-xs font-semibold ${isBig?(delta>0?"text-red-600":"text-emerald-600"):"text-slate-500"}`}>
+                                    {delta>0?"+":""}{delta.toFixed(1)}%{isBig?" ⚠":""}
+                                  </td>
+                                  <td className="text-xs text-slate-600">{r.notes || "-"}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    {detail.vendor_reply.overall_notes && (
+                      <div className="mt-2 text-xs bg-white/60 border border-blue-100 rounded p-2"><b>Catatan umum:</b> {detail.vendor_reply.overall_notes}</div>
+                    )}
+                    {detail.reapproval_reason && (
+                      <div className="mt-2 text-xs bg-amber-100 border border-amber-300 rounded p-2 text-amber-800"><b>⚠ Approval diulang:</b> {detail.reapproval_reason}</div>
+                    )}
+                  </div>
+                )}
+                {detail.vendor_acknowledged && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded text-xs" data-testid="po-ack-info">
+                    <b>✓ Vendor telah konfirmasi terima PO</b> {detail.vendor_acknowledged_by_name && `oleh ${detail.vendor_acknowledged_by_name}`} · {detail.vendor_acknowledged_at && new Date(detail.vendor_acknowledged_at).toLocaleString("id-ID")}
+                  </div>
+                )}
                 <div>
                   <div className="label-tiny mb-2">Approval Timeline</div>
                   {detail.approvals?.length ? detail.approvals.map((a,i)=>(

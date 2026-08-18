@@ -570,6 +570,99 @@ async def send_po(pid: str, user=Depends(get_current_active_user)):
     return {"ok": True}
 
 
+REAPPROVAL_DELTA_PCT = 5.0
+
+
+@router.post("/pos/{pid}/accept-vendor-reply")
+async def accept_vendor_reply(pid: str, user=Depends(get_current_active_user)):
+    """Buyer accepts vendor's counter prices; recalculate totals + tax; re-trigger approval if delta > threshold."""
+    if user["role"] not in ("admin", "procurement"):
+        raise HTTPException(403, "Not allowed")
+    db = get_db()
+    po = await db.pos.find_one({"id": pid})
+    if not po:
+        raise HTTPException(404, "PO not found")
+    reply = po.get("vendor_reply")
+    if not reply:
+        raise HTTPException(400, "Belum ada balasan dari vendor")
+    if not reply.get("can_fulfill", True):
+        raise HTTPException(400, "Vendor menolak — gunakan tombol Tolak dan pilih vendor lain")
+
+    # Apply counter prices per item
+    items = list(po.get("items") or [])
+    max_delta_pct = 0.0
+    for r_item in (reply.get("items") or []):
+        idx = r_item.get("item_index")
+        new_price = r_item.get("price")
+        if idx is None or new_price is None or idx >= len(items):
+            continue
+        old_price = float(items[idx].get("price") or 0)
+        if old_price > 0:
+            delta_pct = abs((float(new_price) - old_price) / old_price) * 100.0
+            max_delta_pct = max(max_delta_pct, delta_pct)
+        items[idx] = {
+            **items[idx],
+            "price": float(new_price),
+            "subtotal": float(new_price) * float(items[idx].get("qty") or 0),
+            "vendor_notes": r_item.get("notes"),
+        }
+    new_untaxed = sum(float(it.get("subtotal") or 0) for it in items)
+
+    # Recompute tax breakdown with existing tax_ids
+    from routes_taxes import compute_tax_breakdown
+    if po.get("tax_ids"):
+        bk = await compute_tax_breakdown(db, new_untaxed, po["tax_ids"])
+        amount_tax = bk["tax_total"]
+        tax_breakdown = bk["tax_breakdown"]
+    else:
+        tax_percent = float(po.get("tax_percent") or 0)
+        amount_tax = new_untaxed * tax_percent / 100.0
+        tax_breakdown = [{"code": f"PPN{int(tax_percent)}", "name": f"PPN {tax_percent}%", "rate": tax_percent, "base": new_untaxed, "amount": amount_tax, "tax_type": "sales"}] if tax_percent else []
+    dpp_extra = float(po.get("dpp_nilai_lain") or 0)
+    amount_total = new_untaxed + amount_tax + dpp_extra
+
+    update = {
+        "items": items,
+        "total": new_untaxed,
+        "untaxed_amount": new_untaxed,
+        "amount_tax": amount_tax,
+        "tax_breakdown": tax_breakdown,
+        "amount_total": amount_total,
+        "vendor_reply_accepted_at": now_iso(),
+        "vendor_reply_max_delta_pct": max_delta_pct,
+        "delivery_date": reply.get("delivery_days") and (po.get("delivery_date") or None),
+    }
+
+    reapproved = False
+    if max_delta_pct > REAPPROVAL_DELTA_PCT:
+        wf = await _pick_workflow(db, "PO", None)
+        new_steps = _levels_for_amount(wf, new_untaxed)
+        update["approvals"] = new_steps
+        update["current_level"] = 1 if new_steps else 0
+        update["status"] = "pending_approval" if new_steps else "approved"
+        update["reapproval_reason"] = f"Perubahan harga vendor {max_delta_pct:.1f}% > {REAPPROVAL_DELTA_PCT}%"
+        reapproved = True
+
+    await db.pos.update_one({"id": pid}, {"$set": update})
+    if reapproved:
+        try:
+            fresh = await db.pos.find_one({"id": pid}, {"_id": 0})
+            await notify_pending_approval("Purchase Order", fresh)
+        except Exception:
+            pass
+    return {"ok": True, "reapproved": reapproved, "delta_pct": max_delta_pct, "new_total": amount_total}
+
+
+@router.post("/pos/{pid}/reject-vendor-reply")
+async def reject_vendor_reply(pid: str, user=Depends(get_current_active_user)):
+    """Buyer rejects vendor's reply; clear vendor_reply, PO remains at original price."""
+    if user["role"] not in ("admin", "procurement"):
+        raise HTTPException(403, "Not allowed")
+    db = get_db()
+    await db.pos.update_one({"id": pid}, {"$set": {"vendor_reply_rejected_at": now_iso()}, "$unset": {"vendor_reply": ""}})
+    return {"ok": True}
+
+
 # ---------- Tenders ----------
 class TenderItemIn(BaseModel):
     product_id: str

@@ -37,6 +37,7 @@ from routes_customs import router as customs_router
 from routes_stock import router as stock_router
 from routes_taxes import router as taxes_router
 from routes_tax_reports import router as tax_reports_router
+from routes_spt import router as spt_router
 
 
 logging.basicConfig(
@@ -136,6 +137,7 @@ app.include_router(customs_router)
 app.include_router(stock_router)
 app.include_router(taxes_router)
 app.include_router(tax_reports_router)
+app.include_router(spt_router)
 
 
 # ---------- CORS ----------

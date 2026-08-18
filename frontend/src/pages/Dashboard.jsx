@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import api, { fmtIDR } from "@/lib/api";
-import { ArrowUpRight, Wallet, ClipboardList, FileText, Gavel, Users, TrendingDown, AlertTriangle } from "lucide-react";
+import { ArrowUpRight, Wallet, ClipboardList, FileText, Gavel, Users, TrendingDown, AlertTriangle, Star } from "lucide-react";
 import { Link } from "react-router-dom";
 
 function Kpi({ label, value, hint, icon:Icon, testid }) {
@@ -19,9 +19,15 @@ function Kpi({ label, value, hint, icon:Icon, testid }) {
 export default function Dashboard() {
   const [s, setS] = useState(null);
   const [forecast, setForecast] = useState([]);
+  const [pendingRatings, setPendingRatings] = useState([]);
   useEffect(() => {
     api.get("/dashboard/stats").then(r => setS(r.data));
     api.get("/dashboard/budget-forecast").then(r => setForecast(r.data));
+    // POs completed but not rated
+    api.get("/pos?status=completed&page_size=100").then(r=>{
+      const list = (r.data.items||[]).filter(p=>!p.vendor_rating);
+      setPendingRatings(list);
+    }).catch(()=>{});
   }, []);
   if (!s) return <div className="text-sm text-slate-500">Memuat dashboard...</div>;
 
@@ -38,6 +44,21 @@ export default function Dashboard() {
         <Kpi testid="kpi-tender-open" label="Tender Terbuka" value={s.tender_open} icon={Gavel}/>
         <Kpi testid="kpi-vendor-pending" label="Vendor Menunggu Review" value={s.vendor_pending} icon={Users}/>
       </div>
+
+      {pendingRatings.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-md p-4 flex items-center justify-between" data-testid="pending-ratings-banner">
+          <div className="flex items-center gap-3">
+            <Star size={24} className="text-amber-500"/>
+            <div>
+              <div className="font-heading text-sm font-bold text-amber-900">Rating Vendor Menunggu — {pendingRatings.length} PO</div>
+              <div className="text-xs text-amber-800/80 mt-0.5">
+                {pendingRatings.slice(0,3).map(p=>p.po_number).join(", ")}{pendingRatings.length>3 && ` +${pendingRatings.length-3} lainnya`}
+              </div>
+            </div>
+          </div>
+          <Link to="/po?rate=1" className="text-xs font-semibold px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded" data-testid="pending-ratings-cta">Beri Rating ★</Link>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-white border border-slate-200 rounded-md p-6" data-testid="budget-summary">

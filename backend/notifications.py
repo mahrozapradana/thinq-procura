@@ -111,3 +111,30 @@ async def notify_pending_approval(doc_type: str, doc: dict):
     </div>
     """.replace(",", ".")
     await send_email(emails, subject, body)
+
+
+async def send_rating_reminder(po: dict):
+    """Send rating reminder to PO creator (buyer) after goods receipt is completed."""
+    db = get_db()
+    creator_id = po.get("created_by")
+    if not creator_id:
+        return
+    u = await db.users.find_one({"id": creator_id}, {"email": 1, "name": 1, "_id": 0})
+    if not u or not u.get("email"):
+        return
+    base_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    link = f"{base_url}/po?rate={po['id']}"
+    vendor_name = po.get("vendor_name") or "vendor"
+    subject = f"[Procura] Beri rating untuk {vendor_name} – PO {po.get('po_number')}"
+    body = f"""
+    <div style="font-family:system-ui,sans-serif;padding:20px;max-width:540px">
+      <h2 style="color:#0F172A;margin:0 0 8px">Barang sudah diterima ✓</h2>
+      <p>PO <b>{po.get('po_number')}</b> dari <b>{vendor_name}</b> telah selesai diterima gudang.
+      Mohon berikan rating 1–5★ agar analytics vendor tetap akurat.</p>
+      <div style="margin:16px 0">
+        <a href="{link}" style="display:inline-block;padding:12px 22px;background:#F59E0B;color:white;text-decoration:none;border-radius:4px;font-weight:600">★ Beri Rating Sekarang</a>
+      </div>
+      <p style="color:#94A3B8;font-size:11px">Rating vendor terlihat di dashboard analytics dan mempengaruhi urutan rekomendasi vendor.</p>
+    </div>
+    """
+    await send_email([u["email"]], subject, body)

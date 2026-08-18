@@ -65,6 +65,13 @@ async def create_receipt(payload: ReceiptIn, user=Depends(get_current_active_use
     # Mark PRs as received in warehouse
     if po.get("pr_ids"):
         await db.prs.update_many({"id": {"$in": po["pr_ids"]}}, {"$set": {"warehouse_status": new_status}})
+    # Auto-send rating reminder to buyer if PO is now fully completed
+    if new_status == "completed" and not po.get("vendor_rating"):
+        try:
+            from notifications import send_rating_reminder
+            await send_rating_reminder({**po, "shipping_status": new_status, "status": "completed"})
+        except Exception:
+            pass
     return clean(doc)
 
 

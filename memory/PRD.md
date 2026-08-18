@@ -167,3 +167,29 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - P1: Odoo XML-RPC sinkronisasi PO sekarang harus mengirim tax_ids (pemetaan ke account.tax di Odoo)
 - P2: Barcode scanner E2E validation
 - P2: Refactoring `server.py` bila > 700 baris
+
+## Iteration 13 – 2026-02-18 (Vendor Reply Review + Auto Re-Approval + SPT-1111 + Rating Reminder)
+### Added
+- **Buyer accepts/rejects vendor_reply**:
+  - `POST /api/pos/{id}/accept-vendor-reply` (admin/procurement): apply vendor counter prices per item → recompute subtotal, tax breakdown (using existing tax_ids), and grand_total. Returns `{ok, reapproved, delta_pct, new_total}`.
+  - `POST /api/pos/{id}/reject-vendor-reply`: clear vendor_reply, keep original PO.
+  - Frontend: blue vendor_reply panel in PurchaseOrders detail Sheet with comparison table (Harga Asli vs Counter Vendor, Δ%, red badge if |Δ|>5%). Terima/Tolak buttons.
+- **Auto Re-Approval Threshold (5%)**: If accept-vendor-reply causes max item price delta > `REAPPROVAL_DELTA_PCT=5.0`, backend resets `approvals` via `_pick_workflow`+`_levels_for_amount`, sets `status=pending_approval`, `current_level=1`, `reapproval_reason` field, and fires `notify_pending_approval` (email to approvers). UI badge "⚠ Approval diulang" in detail.
+- **SPT-1111 Formulir 1111 B2 (DJP-format)**: New `/app/backend/routes_spt.py` → `GET /api/reports/spt-1111.xlsx?year=&month=`. Sheet 1: Daftar Pajak Masukan (kolom: No, Nama PKP, NPWP, Faktur, Tanggal, Ref, DPP, PPN, PPnBM, Kode transaksi 01) with proper DJP-style header block. Sheet 2: Induk Ringkasan (A/B1/B2 totals). Fallback ke PO data jika belum ada invoice. Button "SPT-1111 (DJP)" ditambahkan di halaman Laporan Pajak.
+- **Vendor Rating Post-Receipt**:
+  - `notifications.send_rating_reminder(po)` — email HTML ke PO creator (buyer) dengan tombol "★ Beri Rating Sekarang" ke `/po?rate={id}`.
+  - Trigger otomatis di `routes_inventory.create_receipt` saat receipt membuat `shipping_status="completed"` (dan `vendor_rating` belum ada).
+  - Dashboard: banner amber "Rating Vendor Menunggu — N PO" dengan CTA jika ada PO completed belum di-rate.
+
+### Verified
+- SPT-1111 XLSX endpoint: HTTP 200, 6658 bytes ✓
+- Accept-vendor-reply dengan 20% price hike: status→pending_approval, reapproval_reason set, notify_pending_approval fired ✓
+- Vendor Reply UI di PO detail: comparison table dengan Δ% color-coded (green -2.5% kecil, red bila >5%) ✓
+- Dashboard "Rating Vendor Menunggu — 2 PO" banner tampil untuk PO PO-20260818-F3CB3, PO-20260818-3747E ✓
+- Rating reminder trigger: hooked di create_receipt saat status→completed & belum ada rating ✓
+
+### Backlog / Next
+- P2: Delta% threshold configurable di Settings (default 5%)
+- P2: Real-time WebSocket notification untuk vendor reply
+- P3: Multi-currency support di PO (USD Bonded)
+

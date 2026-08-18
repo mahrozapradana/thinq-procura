@@ -62,6 +62,13 @@ export default function TaxReports() {
             </Select>
           </div>
           <Button onClick={download} data-testid="tax-download-xlsx"><FileSpreadsheet size={14}/> Download XLSX</Button>
+          <Button variant="outline" onClick={async ()=>{
+            const t = localStorage.getItem("access_token");
+            const r = await fetch(`${API_URL}/api/reports/spt-1111.xlsx?year=${year}&month=${month}`, { credentials: "include", headers: t ? { Authorization: `Bearer ${t}` } : {} });
+            if (!r.ok) { toast.error("Gagal unduh SPT-1111"); return; }
+            const b = await r.blob(); const url = URL.createObjectURL(b);
+            const a = document.createElement("a"); a.href = url; a.download = `SPT_1111_${year}-${String(month).padStart(2,"0")}.xlsx`; a.click(); URL.revokeObjectURL(url);
+          }} data-testid="spt-download"><Download size={14}/> SPT-1111 (DJP)</Button>
         </div>
       </div>
 
