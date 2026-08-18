@@ -200,6 +200,8 @@ body {
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
+    text-decoration: none;
+    position: relative;
     transition: background-color 120ms ease, color 120ms ease;
 }
 .side-link:hover {
@@ -211,6 +213,11 @@ body {
     color: #FFFFFF;
     border-left: 2px solid #60A5FA;
 }
+aside.w-16 .side-link { justify-content: center; padding: 10px 0; border-left: none; }
+aside.w-16 .side-link > span:not([data-testid="side-badge"]),
+aside.w-16 .side-link:not(:has(svg)) { display: none; }
+aside.w-16 .side-group-label { display: none; }
+aside.w-16 .side-link [data-testid="side-badge"] { position: absolute; top: 2px; right: 6px; margin: 0; }
 .side-group-label {
     padding: 12px 12px 6px;
     font-size: 10px;

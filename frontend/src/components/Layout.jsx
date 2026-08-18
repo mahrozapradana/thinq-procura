@@ -9,7 +9,7 @@ import { applyBrandPalette } from "@/lib/brand";
 import {
   LayoutDashboard, Package, Building2, Tag, Users, FileText,
   ClipboardList, Gavel, Warehouse, Wallet, Settings, LogOut,
-  Ship, Receipt, ScrollText, ShieldCheck, Handshake,
+  Ship, Receipt, ScrollText, ShieldCheck, Handshake, Menu, X, ChevronsLeft, ChevronsRight,
 } from "lucide-react";
 
 const INTERNAL_ROLES = ["admin", "procurement", "requester", "approver", "warehouse", "finance"];
@@ -29,6 +29,14 @@ export default function Layout({ children }) {
   }, [isVendor]);
 
   const [brand, setBrand] = useState({});
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("epr-sidebar") === "collapsed");
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  const toggleSidebar = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    localStorage.setItem("epr-sidebar", next ? "collapsed" : "expanded");
+  };
 
   // Apply tenant brand palette + logo from company settings
   useEffect(() => {
@@ -48,17 +56,24 @@ export default function Layout({ children }) {
 
   return (
     <div className="flex min-h-screen bg-slate-50" data-testid="app-shell">
+      {mobileOpen && <div className="lg:hidden fixed inset-0 bg-black/50 z-30" onClick={()=>setMobileOpen(false)}/>}
       {/* Sidebar */}
-      <aside className="w-64 shrink-0 bg-slate-900 text-white flex flex-col" data-testid="sidebar">
-        <div className="px-5 py-5 border-b border-white/10">
-          {brand.logo ? (
-            <img src={brand.logo} alt={brand.name || "logo"} className="max-h-10 max-w-[180px] object-contain"/>
+      <aside className={`bg-slate-900 text-white flex-shrink-0 flex flex-col transition-all duration-200 z-40 ${collapsed ? "w-16" : "w-64"} ${mobileOpen ? "fixed inset-y-0 left-0" : "hidden lg:flex"}`} data-testid="sidebar">
+        <div className="px-3 py-4 border-b border-white/10 flex items-center justify-between">
+          {!collapsed && (brand.logo ? (
+            <img src={brand.logo} alt={brand.name || "logo"} className="max-h-10 max-w-[150px] object-contain"/>
           ) : (
-            <>
+            <div>
               <div className="font-heading text-lg font-bold tracking-tight">PROCURA<span className="text-blue-400">.</span></div>
-              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400 mt-1">E-Procurement Suite</div>
-            </>
-          )}
+              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400 mt-1">E-Procurement</div>
+            </div>
+          ))}
+          <button onClick={toggleSidebar} className="hidden lg:block text-slate-400 hover:text-white p-1" data-testid="sidebar-toggle" title={collapsed?"Expand":"Collapse"}>
+            {collapsed ? <ChevronsRight size={16}/> : <ChevronsLeft size={16}/>}
+          </button>
+          <button onClick={()=>setMobileOpen(false)} className="lg:hidden text-slate-400 hover:text-white p-1" data-testid="sidebar-close-mobile">
+            <X size={16}/>
+          </button>
         </div>
         <nav className="flex-1 overflow-y-auto py-3">
             {isVendor ? (
@@ -169,10 +184,15 @@ export default function Layout({ children }) {
 
       {/* Main */}
       <main className="flex-1 min-w-0 flex flex-col">
-        <header className="h-14 border-b border-slate-200 bg-white flex items-center justify-between px-6 sticky top-0 z-20" data-testid="topbar">
-          <div className="text-sm text-slate-600">
-            <span className="label-tiny mr-2">Company</span>
-            <span className="font-heading font-semibold text-slate-900">Kawasan Berikat Aktif</span>
+        <header className="h-14 border-b border-slate-200 bg-white flex items-center justify-between px-4 lg:px-6 sticky top-0 z-20" data-testid="topbar">
+          <div className="flex items-center gap-3">
+            <button onClick={()=>setMobileOpen(true)} className="lg:hidden p-2 hover:bg-slate-100 rounded" data-testid="hamburger">
+              <Menu size={20}/>
+            </button>
+            <div className="text-sm text-slate-600 hidden sm:block">
+              <span className="label-tiny mr-2">Company</span>
+              <span className="font-heading font-semibold text-slate-900">{brand.name || "Kawasan Berikat Aktif"}</span>
+            </div>
           </div>
           <div className="flex items-center gap-4">
             <ThemeToggle/>

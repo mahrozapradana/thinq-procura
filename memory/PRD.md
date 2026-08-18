@@ -412,3 +412,26 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - **Pagination Global Component**: Baru `/app/frontend/src/components/Pagination.jsx` — reusable footer dengan prev/next + halaman terpilih + range 5 dan ellipsis. Diintegrasikan ke VendorPOs & VendorRFQs (client-side slice per 10 baris).
 - **Verified**: Screenshot RFQ vendor menampilkan 8 kolom lengkap (No RFQ/PO, Type, Untaxed, Pajak, Grand Total, Status, Balasan, Aksi Eye + Balas Harga) + footer "1 baris" ✓
 
+
+## Iteration 23 – 2026-02-18 (Sidebar Minimize + Mobile Drawer)
+### Added
+- **Sidebar Toggle Collapse (Desktop)**: Tombol `<ChevronsLeft/>`/`<ChevronsRight/>` di header sidebar. State disimpan di `localStorage["epr-sidebar"]`. Saat `w-16`:
+  - Logo/text tersembunyi (`aside.w-16 .side-link span:not([data-testid="side-badge"]) { display:none }`)
+  - Group labels tersembunyi
+  - Badge unread absolute position atas-kanan icon
+  - Icon terpusat + padding vertical
+- **Mobile Drawer**: Breakpoint `lg` (1024px). Saat mobile:
+  - Sidebar `hidden lg:flex` — default tersembunyi
+  - Hamburger button di topbar (`data-testid="hamburger"`) → set `mobileOpen`
+  - Sidebar `fixed inset-y-0 left-0 z-40` slide-over dengan overlay hitam 50% opacity
+  - Tombol X di header sidebar untuk close
+  - Company name di topbar `hidden sm:block` untuk hemat ruang
+### Verified via Playwright
+- Desktop collapsed 1400px: sidebar 64px width, hanya icon terlihat + badges masih di posisi kanan-atas icon ✓
+- Mobile 400px: hamburger button muncul, klik → drawer full-height dengan semua menu + badges tetap terlihat ✓
+### Backlog (Fitur Berikutnya)
+- Sort by Column (P4)
+- Filter Bar Universal (P4)
+- Bulk Actions dengan checkbox (P4)
+- Saved Views user-preset (P5)
+
