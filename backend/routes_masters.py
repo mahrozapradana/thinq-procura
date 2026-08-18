@@ -157,7 +157,7 @@ async def product_pricelists(pid: str, user=Depends(get_current_active_user)):
     db = get_db()
     if not await db.products.find_one({"id": pid}, {"_id": 0, "id": 1}):
         raise HTTPException(404, "Produk tidak ditemukan")
-    rows = await db.vendor_pricelists.find({"product_id": pid}, {"_id": 0}).sort("price", 1).to_list(500)
+    rows = await db.vendor_pricelists.find({"product_id": pid}, {"_id": 0}).sort([("verified", -1), ("price", 1)]).to_list(500)
     return rows
 
 

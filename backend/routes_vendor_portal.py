@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, EmailStr
 
 from auth_utils import get_current_active_user
@@ -187,7 +187,9 @@ async def vendor_acknowledge_po(pid: str, user=Depends(get_current_active_user))
 
 class RFQReplyItem(BaseModel):
     item_index: int
-    price: Optional[float] = None  # counter price per unit
+    price: Optional[float] = None  # counter price per unit (pre-discount)
+    discount_type: Optional[str] = None  # 'percent' | 'amount' | None
+    discount_value: Optional[float] = 0
     notes: Optional[str] = None
 
 
@@ -198,9 +200,22 @@ class RFQReplyIn(BaseModel):
     can_fulfill: bool = True  # false = decline outright
 
 
+def _apply_discount(price: float, qty: float, discount_type: Optional[str], discount_value: Optional[float]):
+    subtotal = float(price) * float(qty)
+    dv = float(discount_value or 0)
+    if not dv or not discount_type:
+        return {"subtotal_before": subtotal, "discount_amount": 0.0, "subtotal_after": subtotal}
+    if discount_type == "percent":
+        amt = subtotal * (dv / 100.0)
+    else:  # 'amount' → rupiah per unit
+        amt = dv * float(qty)
+    amt = max(0.0, min(amt, subtotal))
+    return {"subtotal_before": subtotal, "discount_amount": amt, "subtotal_after": subtotal - amt}
+
+
 @router.post("/vendor-portal/rfqs/{pid}/reply")
 async def vendor_rfq_reply(pid: str, payload: RFQReplyIn, user=Depends(get_current_active_user)):
-    """Vendor sends counter/confirm prices while PO is still draft/pending_approval."""
+    """Vendor sends counter/confirm prices (with optional per-item discount)."""
     vid = _require_vendor(user)
     db = get_db()
     po = await db.pos.find_one({"id": pid, "vendor_id": vid})
@@ -208,13 +223,38 @@ async def vendor_rfq_reply(pid: str, payload: RFQReplyIn, user=Depends(get_curre
         raise HTTPException(404, "RFQ tidak ditemukan")
     if po.get("status") not in ("draft", "pending_approval"):
         raise HTTPException(400, "RFQ sudah tidak dapat direspons (status berubah)")
+    # Snapshot items w/ discount computation for buyer preview
+    items_out: list[dict] = []
+    total_before = 0.0
+    total_discount = 0.0
+    total_after = 0.0
+    for it in payload.items:
+        po_it = (po.get("items") or [])[it.item_index] if it.item_index < len(po.get("items") or []) else {}
+        qty = float(po_it.get("qty") or 0)
+        price = float(it.price if it.price is not None else po_it.get("price") or 0)
+        disc = _apply_discount(price, qty, it.discount_type, it.discount_value)
+        total_before += disc["subtotal_before"]
+        total_discount += disc["discount_amount"]
+        total_after += disc["subtotal_after"]
+        items_out.append({
+            **it.model_dump(),
+            "qty": qty,
+            "subtotal_before": disc["subtotal_before"],
+            "discount_amount": disc["discount_amount"],
+            "subtotal_after": disc["subtotal_after"],
+        })
     reply_doc = {
         "vendor_id": vid,
         "vendor_name": user.get("name"),
         "can_fulfill": payload.can_fulfill,
         "delivery_days": payload.delivery_days,
         "overall_notes": payload.overall_notes,
-        "items": [i.model_dump() for i in payload.items],
+        "items": items_out,
+        "totals": {
+            "before_discount": total_before,
+            "discount_amount": total_discount,
+            "after_discount": total_after,
+        },
         "submitted_at": now_iso(),
     }
     await db.pos.update_one({"id": pid}, {"$set": {"vendor_reply": reply_doc}})
@@ -382,10 +422,82 @@ async def create_vendor_pricelist(payload: VendorPricelistIn, user=Depends(get_c
         "product_name": prod.get("name"),
         "created_at": now_iso(),
         "created_by": user["id"],
+        "verified": False,
+        "verified_at": None,
+        "verified_by": None,
+        "verified_by_name": None,
         **payload.model_dump(),
     }
     await db.vendor_pricelists.insert_one(doc)
     return clean(doc)
+
+
+@router.post("/vendor-portal/pricelists/bulk")
+async def bulk_upload_pricelists(file: UploadFile = File(...), user=Depends(get_current_active_user)):
+    """Vendor bulk-upload harga per SKU via CSV/XLSX.
+
+    Expected columns: product_code, price, currency (optional), min_qty (optional),
+    valid_from (opt), valid_until (opt), notes (opt).
+    """
+    vid = _require_vendor(user)
+    db = get_db()
+    content = await file.read()
+    rows: list[dict] = []
+    ext = (file.filename or "").lower()
+    try:
+        if ext.endswith(".xlsx") or ext.endswith(".xls"):
+            from openpyxl import load_workbook
+            import io as _io
+            wb = load_workbook(_io.BytesIO(content), data_only=True)
+            ws = wb.active
+            headers = [str(c.value).strip().lower() if c.value is not None else "" for c in next(ws.iter_rows(max_row=1))]
+            for r in ws.iter_rows(min_row=2, values_only=True):
+                if not any(r):
+                    continue
+                rows.append({headers[i]: r[i] for i in range(min(len(headers), len(r)))})
+        else:
+            import csv as _csv, io as _io
+            reader = _csv.DictReader(_io.StringIO(content.decode("utf-8-sig")))
+            rows = [{k.strip().lower(): v for k, v in row.items() if k} for row in reader]
+    except Exception as e:
+        raise HTTPException(400, f"Gagal parsing file: {e}")
+    prods_by_code = {p.get("code"): p async for p in db.products.find({}, {"_id": 0, "id": 1, "code": 1, "name": 1})}
+    prods_by_id = {p["id"]: p for p in prods_by_code.values()}
+    created = 0
+    errors: list[dict] = []
+    for i, r in enumerate(rows, start=2):
+        code = str(r.get("product_code") or "").strip()
+        pid = str(r.get("product_id") or "").strip()
+        price_raw = r.get("price")
+        prod = prods_by_id.get(pid) if pid else prods_by_code.get(code)
+        if not prod:
+            errors.append({"row": i, "error": f"produk tidak ditemukan (code={code}, id={pid})"})
+            continue
+        try:
+            price = float(price_raw)
+        except Exception:
+            errors.append({"row": i, "error": f"harga tidak valid: {price_raw}"})
+            continue
+        doc = {
+            "id": new_id(),
+            "vendor_id": vid,
+            "vendor_name": user.get("name"),
+            "product_id": prod["id"],
+            "product_name": prod.get("name"),
+            "product_code": prod.get("code"),
+            "price": price,
+            "currency": (str(r.get("currency") or "IDR").upper()).strip() or "IDR",
+            "min_qty": float(r.get("min_qty") or 1),
+            "valid_from": str(r.get("valid_from") or "") or None,
+            "valid_until": str(r.get("valid_until") or "") or None,
+            "notes": str(r.get("notes") or "") or None,
+            "verified": False,
+            "created_at": now_iso(),
+            "created_by": user["id"],
+        }
+        await db.vendor_pricelists.insert_one(doc)
+        created += 1
+    return {"ok": True, "created": created, "errors": errors, "total_rows": len(rows)}
 
 
 @router.delete("/vendor-portal/pricelists/{plid}")
@@ -396,6 +508,25 @@ async def delete_vendor_pricelist(plid: str, user=Depends(get_current_active_use
     if r.deleted_count == 0:
         raise HTTPException(404, "Pricelist tidak ditemukan atau bukan milik Anda")
     return {"ok": True}
+
+
+@router.post("/pricelists/{plid}/verify")
+async def verify_pricelist(plid: str, user=Depends(get_current_active_user)):
+    """Procurement / admin verifies a vendor pricelist entry (toggles)."""
+    if user["role"] not in ("admin", "procurement"):
+        raise HTTPException(403, "Not allowed")
+    db = get_db()
+    pl = await db.vendor_pricelists.find_one({"id": plid}, {"_id": 0})
+    if not pl:
+        raise HTTPException(404, "Pricelist tidak ditemukan")
+    new_state = not bool(pl.get("verified"))
+    await db.vendor_pricelists.update_one({"id": plid}, {"$set": {
+        "verified": new_state,
+        "verified_at": now_iso() if new_state else None,
+        "verified_by": user["id"] if new_state else None,
+        "verified_by_name": user.get("name") if new_state else None,
+    }})
+    return {"ok": True, "verified": new_state}
 
 
 @router.get("/vendor-portal/tenders/{tid}/price-suggestions")
@@ -509,6 +640,7 @@ async def submit_invoice(payload: InvoiceIn, user=Depends(get_current_active_use
         "id": new_id(),
         "invoice_number": gen_number("INV"),
         "vendor_id": vid,
+        "vendor_name": po.get("vendor_name"),
         "po_id": payload.po_id,
         "po_number": po.get("po_number"),
         "amount": payload.amount,
@@ -517,11 +649,42 @@ async def submit_invoice(payload: InvoiceIn, user=Depends(get_current_active_use
         "notes": payload.notes,
         "ls_document_id": payload.ls_document_id,
         "is_bonded": po.get("po_type") == "BONDED",
+        # Snapshot from PO for invoice detail view
+        "items": po.get("items") or [],
+        "untaxed_amount": po.get("untaxed_amount") or po.get("total") or 0,
+        "tax_breakdown": po.get("tax_breakdown") or [],
+        "taxes_snapshot": po.get("taxes_snapshot") or [],
+        "amount_tax": po.get("amount_tax") or 0,
+        "amount_total": po.get("amount_total") or po.get("total") or 0,
+        "currency": po.get("currency") or "IDR",
+        "exchange_rate": po.get("exchange_rate") or 1.0,
+        "vendor_reply": po.get("vendor_reply"),  # includes any per-item discount
         "created_at": now_iso(),
     }
     await db.invoices.insert_one(doc)
     await db.pos.update_one({"id": payload.po_id}, {"$set": {"invoice_status": "submitted"}})
     return clean(doc)
+
+
+@router.get("/vendor-portal/invoices/{iid}")
+async def vendor_invoice_detail(iid: str, user=Depends(get_current_active_user)):
+    vid = _require_vendor(user)
+    db = get_db()
+    inv = await db.invoices.find_one({"id": iid, "vendor_id": vid}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invoice tidak ditemukan")
+    return inv
+
+
+@router.get("/invoices/{iid}")
+async def invoice_detail(iid: str, user=Depends(get_current_active_user)):
+    db = get_db()
+    inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invoice tidak ditemukan")
+    if user["role"] == "vendor" and inv.get("vendor_id") != user.get("vendor_id"):
+        raise HTTPException(403, "Not allowed")
+    return inv
 
 
 # ---------- LS documents (customs) ----------

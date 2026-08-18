@@ -8,8 +8,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Trash2, LineChart } from "lucide-react";
+import { Plus, Trash2, LineChart, CheckCircle2, XCircle } from "lucide-react";
 import { fmtIDR } from "@/lib/api";
+import PriceTrendChart from "@/components/PriceTrendChart";
 
 function DataSection({ title, endpoint, columns, fields, testid, extra, rowActions }) {
   const [rows, setRows] = useState([]);
@@ -93,14 +94,22 @@ function ProductPriceSheet({ product, onClose }) {
   const [history, setHistory] = useState([]);
   const [tab, setTab] = useState("pricelists");
   const [loading, setLoading] = useState(true);
-  useEffect(() => {
+  const reload = () => {
     if (!product) return;
     setLoading(true);
     Promise.all([
       api.get(`/products/${product.id}/pricelists`).then(r => setPricelists(r.data)),
       api.get(`/products/${product.id}/price-history`).then(r => setHistory(r.data)),
     ]).finally(() => setLoading(false));
-  }, [product]);
+  };
+  useEffect(reload, [product]);
+  const toggleVerify = async (plid) => {
+    try {
+      const r = await api.post(`/pricelists/${plid}/verify`);
+      toast.success(r.data.verified ? "Pricelist diverifikasi" : "Verifikasi dicabut");
+      reload();
+    } catch(e){ toast.error(e.response?.data?.detail || "Gagal"); }
+  };
   if (!product) return null;
   const avgPO = history.length ? history.reduce((s,h)=>s+(h.price||0),0)/history.length : 0;
   const minPO = history.length ? Math.min(...history.map(h=>h.price||0)) : 0;
@@ -121,17 +130,28 @@ function ProductPriceSheet({ product, onClose }) {
               ) : (
                 <div className="border border-slate-200 rounded overflow-x-auto">
                   <table className="data-table">
-                    <thead><tr><th>Vendor</th><th>Harga</th><th>Min Qty</th><th>Berlaku</th><th>File</th><th>Catatan</th><th>Diunggah</th></tr></thead>
+                    <thead><tr><th>Vendor</th><th>Harga</th><th>Min Qty</th><th>Berlaku</th><th>Verified</th><th>File</th><th>Catatan</th><th></th></tr></thead>
                     <tbody>
                       {pricelists.map((p,i)=>(
-                        <tr key={p.id} data-testid={`pl-row-${i}`}>
+                        <tr key={p.id} data-testid={`pl-row-${i}`} className={p.verified?"bg-emerald-50/40":""}>
                           <td className="font-semibold">{p.vendor_name}</td>
                           <td className="font-mono font-semibold">{p.currency||"IDR"} {(p.price||0).toLocaleString("id-ID")}</td>
                           <td>{p.min_qty||1}</td>
                           <td className="text-xs">{p.valid_from||"-"} → {p.valid_until||"-"}</td>
+                          <td>
+                            {p.verified ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700" title={`Oleh ${p.verified_by_name||""} — ${p.verified_at||""}`} data-testid={`pl-verified-${i}`}>
+                                <CheckCircle2 size={10}/> Verified
+                              </span>
+                            ) : <span className="text-slate-400 text-[10px]">Belum</span>}
+                          </td>
                           <td>{p.file_url ? <a href={p.file_url} target="_blank" rel="noreferrer" className="text-blue-700 underline text-xs">{p.filename||"file"}</a> : <span className="text-slate-400">-</span>}</td>
                           <td className="text-xs">{p.notes||"-"}</td>
-                          <td className="text-[10px] text-slate-500">{p.created_at ? new Date(p.created_at).toLocaleDateString("id-ID"):"-"}</td>
+                          <td className="text-right">
+                            <button onClick={()=>toggleVerify(p.id)} className={`text-xs px-2 py-1 rounded font-semibold border ${p.verified?"border-red-300 text-red-600 hover:bg-red-50":"border-emerald-300 text-emerald-700 hover:bg-emerald-50"}`} data-testid={`pl-verify-${i}`}>
+                              {p.verified ? <><XCircle size={10} className="inline"/> Batal</> : <><CheckCircle2 size={10} className="inline"/> Verifikasi</>}
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -139,12 +159,13 @@ function ProductPriceSheet({ product, onClose }) {
                 </div>
               )}
             </TabsContent>
-            <TabsContent value="history" className="mt-3">
+            <TabsContent value="history" className="mt-3 space-y-3">
               {loading ? <div className="text-sm text-slate-500">Memuat...</div> : history.length === 0 ? (
                 <div className="text-sm text-slate-400 italic p-4 text-center border border-dashed rounded">Belum ada history pembelian untuk produk ini.</div>
               ) : (
                 <>
-                  <div className="grid grid-cols-3 gap-2 mb-3">
+                  <PriceTrendChart data={history}/>
+                  <div className="grid grid-cols-3 gap-2">
                     <div className="bg-emerald-50 border border-emerald-200 rounded p-2 text-xs" data-testid="ph-avg">
                       <div className="label-tiny">Rata-rata</div>
                       <div className="font-mono font-bold text-sm">{fmtIDR(avgPO)}</div>

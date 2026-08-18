@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import Pagination from "@/components/Pagination";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import { useDataTable } from "@/components/useDataTable";
+import InvoiceDetailSheet from "@/components/InvoiceDetailSheet";
+import { Eye } from "lucide-react";
 
 const STATUS = {
   outstanding:"bg-amber-100 text-amber-700",
@@ -14,6 +16,7 @@ const STATUS = {
 
 export default function InvoicesFinance() {
   const [rows, setRows] = useState([]);
+  const [detailId, setDetailId] = useState(null);
   const [page, setPage] = useState(1);
   const perPage = 10;
   const load = () => api.get("/invoices").then(r=>setRows(r.data));
@@ -69,13 +72,17 @@ export default function InvoicesFinance() {
                 <td data-label="Bonded">{i.is_bonded ? <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">Bonded</span> : "-"}</td>
                 <td className="text-xs" data-label="Due Date">{i.due_date || "-"}</td>
                 <td data-label="Status"><span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS[i.status]}`}>{i.status}</span></td>
-                <td className="text-right" data-label="Aksi">{i.status==="outstanding" && <Button size="sm" variant="outline" onClick={()=>pay(i.id)} data-testid={`invoice-pay-${i.id}`}>Bayar</Button>}</td>
+                <td className="text-right whitespace-nowrap" data-label="Aksi">
+                  <button onClick={()=>setDetailId(i.id)} className="p-1 hover:bg-slate-100 rounded mr-1" data-testid={`invoice-view-${i.id}`}><Eye size={14}/></button>
+                  {i.status==="outstanding" && <Button size="sm" variant="outline" onClick={()=>pay(i.id)} data-testid={`invoice-pay-${i.id}`}>Bayar</Button>}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
         <Pagination page={page} pages={pages} total={total} onChange={setPage} perPage={perPage}/>
       </div>
+      <InvoiceDetailSheet invoiceId={detailId} source="admin" onClose={()=>setDetailId(null)}/>
     </div>
   );
 }

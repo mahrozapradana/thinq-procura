@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
 
-from db_models import get_db
+from db_models import get_db, now_iso
 from notifications import send_email, resolve_approver_emails
 
 router = APIRouter(prefix="/api/cron")
@@ -132,4 +132,52 @@ async def tender_draft_reminders(request: Request, background: BackgroundTasks, 
     """No-auth cron: platform can hit this via GET. Runs quickly, enqueues heavy work."""
     run_id = x_webhook_id or "manual"
     background.add_task(_dispatch_draft_reminders, run_id)
+    return {"ok": True, "run_id": run_id, "enqueued": True}
+
+
+
+async def _dispatch_sealed_auto_reveal(run_id: str):
+    """Reveal sealed tenders whose deadline has passed."""
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    revealed = 0
+    async for t in db.tenders.find(
+        {"is_sealed": True, "sealed_revealed_at": None, "deadline": {"$exists": True, "$ne": None}},
+        {"_id": 0, "id": 1, "tender_number": 1, "deadline": 1, "created_by": 1},
+    ):
+        try:
+            dl_raw = t.get("deadline") or ""
+            dl = datetime.fromisoformat(dl_raw.replace("Z", "+00:00")) if "T" in dl_raw else datetime.fromisoformat(dl_raw + "T23:59:59+00:00")
+            if dl.tzinfo is None:
+                dl = dl.replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+        if now >= dl:
+            await db.tenders.update_one({"id": t["id"]}, {"$set": {
+                "sealed_revealed_at": now_iso(),
+                "sealed_revealed_by": "system:auto",
+            }})
+            revealed += 1
+            try:
+                from routes_notifications import create_notification, notify_role
+                if t.get("created_by"):
+                    await create_notification(
+                        t["created_by"], "tender_reveal",
+                        f"Sealed tender {t.get('tender_number')} otomatis dibuka",
+                        "Deadline tercapai — semua harga vendor sudah terlihat.",
+                        f"/tenders?open={t['id']}",
+                    )
+                await notify_role("procurement", "tender_reveal",
+                    f"Sealed tender {t.get('tender_number')} dibuka otomatis",
+                    "Amplop dibuka oleh sistem karena deadline tercapai.",
+                    f"/tenders?open={t['id']}")
+            except Exception:
+                pass
+    logger.info(f"[sealed-auto-reveal] run={run_id} revealed={revealed}")
+
+
+@router.get("/sealed-auto-reveal")
+async def sealed_auto_reveal(background: BackgroundTasks, x_webhook_id: str | None = Header(default=None)):
+    run_id = x_webhook_id or "manual"
+    background.add_task(_dispatch_sealed_auto_reveal, run_id)
     return {"ok": True, "run_id": run_id, "enqueued": True}

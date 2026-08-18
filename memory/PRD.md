@@ -474,3 +474,20 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - P2: Split `VendorPortal.jsx` (>1050 lines) into per-page files
 - P2: Add shared-secret header to `/cron/tender-draft-reminders`
 - P3: Radix a11y polish (VisuallyHidden DialogTitle/SheetDescription)
+
+## Iteration 26 – 2026-02-18 (Pricelist Approval, Bulk CSV, Trend Chart, Auto-Reveal, Invoice Detail, PO Discount)
+### Added
+- **Vendor Pricelist Approval**: Procurement/admin can toggle `verified` per pricelist entry — `POST /api/pricelists/{plid}/verify` (idempotent toggle). Verified rows highlight emerald in `ProductPriceSheet` and get a "✓ Verified" badge in the vendor's own list.
+- **Bulk CSV/XLSX Pricelist**: New `POST /api/vendor-portal/pricelists/bulk` (multipart). Parses CSV (utf-8-sig) or XLSX via openpyxl. Columns: `product_code|product_id, price, currency, min_qty, valid_from, valid_until, notes`. Returns `{ok, created, errors[], total_rows}` — bad rows skip without failing whole batch. UI: new "Bulk Upload (CSV/XLSX)" button next to "Tambah Harga" (`vpl-bulk-btn`) + format helper text.
+- **Price Trend Chart**: New reusable `<PriceTrendChart data={history}/>` — dependency-free inline SVG with points, filled area, avg dashed line, trend % vs first PO, and hover tooltips. Shown at the top of History PO tab in `ProductPriceSheet`. Colors: red > +5%, green < -5%, else grey.
+- **Sealed Auto-Reveal (cron)**: New `_dispatch_sealed_auto_reveal` + `GET /api/cron/sealed-auto-reveal` running every 5 min. Finds tenders with `is_sealed=true AND sealed_revealed_at=null AND deadline<=now`, reveals them, and pushes bell notifications to buyer + all procurement.
+- **Invoice Detail View**: New shared `<InvoiceDetailSheet invoiceId source />` used in both `InvoicesFinance.jsx` (admin, `source='admin'`) and `VendorInvoices` (vendor, `source='vendor'`). Displays: header meta (PO, vendor, currency, due), line items table with Qty/Harga/Diskon/Subtotal Net, tax breakdown table (withholding shown in red with negative sign), and totals summary with Grand Total. Endpoints: `GET /api/invoices/{iid}` (RBAC-scoped for vendors), `GET /api/vendor-portal/invoices/{iid}`. `submit_invoice` now snapshots PO `items + tax_breakdown + taxes_snapshot + amount_tax + amount_total + vendor_reply` so historical invoices remain auditable even if PO changes later.
+- **PO Discount from Vendor (RFQ Reply)**: Extended `RFQReplyItem` with `discount_type: 'percent'|'amount'|null` and `discount_value: float`. Backend `_apply_discount` computes `subtotal_before / discount_amount / subtotal_after` per item + `totals.before_discount/discount_amount/after_discount` at reply level. Frontend RFQ reply dialog now has new "Diskon" column (dropdown Tidak/Persen/Rp per unit + value input) + "Subtotal Net" auto-recomputes per keystroke + grand-total footer row.
+### Verified
+- Backend: 14/14 pytest cases PASSED (`/app/backend/tests/test_iteration5_features.py`) — verify toggle, bulk CSV, RFQ discount percent + amount, invoice list/detail, sealed auto-reveal end-to-end.
+- Frontend Playwright smoke: Product price sheet opens correctly. All required `data-testid`s grep-verified in source (pl-verify-*, vpl-bulk-btn, rfq-item-disc-*, invd-*, price-trend-chart).
+### Backlog / Next
+- P1: Split `routes_vendor_portal.py` (740+ lines) → `routes_vendor_pricelists.py` / `_rfq` / `_invoices`
+- P2: Add shared-secret X-Cron-Secret header to unauthenticated cron endpoints
+- P2: Vendor pricelist bulk export back to CSV for round-trip editing
+- P3: Radix a11y polish, chart mobile responsiveness

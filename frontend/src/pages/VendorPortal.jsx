@@ -13,6 +13,7 @@ import Pagination from "@/components/Pagination";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import { useDataTable } from "@/components/useDataTable";
 import Countdown from "@/components/Countdown";
+import InvoiceDetailSheet from "@/components/InvoiceDetailSheet";
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 async function uploadFile(file) {
@@ -517,6 +518,8 @@ export function VendorRFQs() {
         product_name: it.product_name,
         qty: it.qty,
         price: full.vendor_reply?.items?.[i]?.price ?? it.price,
+        discount_type: full.vendor_reply?.items?.[i]?.discount_type || "",
+        discount_value: full.vendor_reply?.items?.[i]?.discount_value ?? 0,
         notes: full.vendor_reply?.items?.[i]?.notes || "",
       })),
     });
@@ -528,13 +531,35 @@ export function VendorRFQs() {
         can_fulfill: reply.can_fulfill,
         delivery_days: reply.delivery_days ? parseInt(reply.delivery_days) : null,
         overall_notes: reply.overall_notes,
-        items: reply.items.map(i => ({ item_index: i.item_index, price: parseFloat(i.price||0), notes: i.notes })),
+        items: reply.items.map(i => ({
+          item_index: i.item_index,
+          price: parseFloat(i.price||0),
+          discount_type: i.discount_type || null,
+          discount_value: parseFloat(i.discount_value||0),
+          notes: i.notes,
+        })),
       });
       toast.success("Balasan harga terkirim ke buyer");
       setReplyFor(null);
       load();
     } catch(e) { toast.error(e.response?.data?.detail || "Gagal"); }
   };
+
+  // Compute per-row totals & grand total after discount for the vendor to preview
+  const computeRow = (it) => {
+    const subtotal = (parseFloat(it.price||0) * parseFloat(it.qty||0));
+    let disc = 0;
+    const dv = parseFloat(it.discount_value||0);
+    if (dv > 0 && it.discount_type === "percent") disc = subtotal * dv / 100;
+    else if (dv > 0 && it.discount_type === "amount") disc = dv * parseFloat(it.qty||0);
+    disc = Math.max(0, Math.min(disc, subtotal));
+    return { subtotal, discount: disc, after: subtotal - disc };
+  };
+  const grandTotals = reply.items.reduce((acc, it) => {
+    const c = computeRow(it);
+    acc.subtotal += c.subtotal; acc.discount += c.discount; acc.after += c.after;
+    return acc;
+  }, { subtotal: 0, discount: 0, after: 0 });
 
   return (
     <div className="space-y-4" data-testid="vendor-rfqs">
@@ -590,24 +615,56 @@ export function VendorRFQs() {
               </label>
             </div>
             {reply.can_fulfill && (
-              <div className="border border-slate-200 rounded overflow-hidden">
+              <div className="border border-slate-200 rounded overflow-x-auto max-h-[420px]">
                 <table className="data-table">
-                  <thead><tr><th>Item</th><th>Qty</th><th>Original Price</th><th>Counter Price</th><th>Catatan</th></tr></thead>
+                  <thead><tr><th>Item</th><th className="text-right">Qty</th><th className="text-right">Original</th><th className="text-right">Counter</th><th>Diskon</th><th className="text-right">Subtotal Net</th><th>Catatan</th></tr></thead>
                   <tbody>
-                    {reply.items.map((it, i) => (
-                      <tr key={i}>
-                        <td className="text-xs">{it.product_name}</td>
-                        <td>{it.qty}</td>
-                        <td className="font-mono text-xs text-slate-400">{fmtIDR(it.original_price)}</td>
-                        <td><Input type="number" value={it.price} onChange={e=>{
-                          const items=[...reply.items]; items[i]={...items[i], price: e.target.value}; setReply({...reply, items});
-                        }} className="h-8 text-xs w-32" data-testid={`rfq-item-price-${i}`}/></td>
-                        <td><Input value={it.notes} onChange={e=>{
-                          const items=[...reply.items]; items[i]={...items[i], notes: e.target.value}; setReply({...reply, items});
-                        }} className="h-8 text-xs" data-testid={`rfq-item-notes-${i}`}/></td>
-                      </tr>
-                    ))}
+                    {reply.items.map((it, i) => {
+                      const c = computeRow(it);
+                      return (
+                        <tr key={i}>
+                          <td className="text-xs">{it.product_name}</td>
+                          <td className="text-right">{it.qty}</td>
+                          <td className="font-mono text-xs text-slate-400 text-right">{fmtIDR(it.original_price)}</td>
+                          <td><Input type="number" value={it.price} onChange={e=>{
+                            const items=[...reply.items]; items[i]={...items[i], price: e.target.value}; setReply({...reply, items});
+                          }} className="h-8 text-xs w-28 font-mono text-right" data-testid={`rfq-item-price-${i}`}/></td>
+                          <td>
+                            <div className="flex gap-1 items-center">
+                              <Select value={it.discount_type || "none"} onValueChange={v=>{
+                                const items=[...reply.items]; items[i]={...items[i], discount_type: v==="none"?"":v, discount_value: v==="none"?0:items[i].discount_value}; setReply({...reply, items});
+                              }}>
+                                <SelectTrigger className="h-8 text-xs w-24" data-testid={`rfq-item-disc-type-${i}`}><SelectValue/></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">- Tidak -</SelectItem>
+                                  <SelectItem value="percent">Persen (%)</SelectItem>
+                                  <SelectItem value="amount">Rp / unit</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <Input type="number" min="0" value={it.discount_value||0} disabled={!it.discount_type} onChange={e=>{
+                                const items=[...reply.items]; items[i]={...items[i], discount_value: e.target.value}; setReply({...reply, items});
+                              }} className="h-8 text-xs w-20 font-mono" data-testid={`rfq-item-disc-val-${i}`}/>
+                            </div>
+                            {c.discount > 0 && <div className="text-[10px] text-red-600 mt-0.5">- {fmtIDR(c.discount)}</div>}
+                          </td>
+                          <td className="text-right font-mono text-xs font-semibold" data-testid={`rfq-item-net-${i}`}>{fmtIDR(c.after)}</td>
+                          <td><Input value={it.notes} onChange={e=>{
+                            const items=[...reply.items]; items[i]={...items[i], notes: e.target.value}; setReply({...reply, items});
+                          }} className="h-8 text-xs" data-testid={`rfq-item-notes-${i}`}/></td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
+                  <tfoot>
+                    <tr className="bg-slate-50 font-semibold text-xs">
+                      <td colSpan={2}>Total</td>
+                      <td></td>
+                      <td className="text-right font-mono" data-testid="rfq-total-subtotal">{fmtIDR(grandTotals.subtotal)}</td>
+                      <td className="text-right font-mono text-red-600" data-testid="rfq-total-discount">- {fmtIDR(grandTotals.discount)}</td>
+                      <td className="text-right font-mono text-emerald-700" data-testid="rfq-total-after">{fmtIDR(grandTotals.after)}</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             )}
@@ -655,6 +712,7 @@ export function VendorInvoices() {
   const [ls, setLs] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({});
+  const [detailId, setDetailId] = useState(null);
 
   const load = () => {
     api.get("/vendor-portal/invoices").then(r=>setRows(r.data));
@@ -700,22 +758,24 @@ export function VendorInvoices() {
       </div>
       <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
-          <thead><tr><th>No Invoice</th><th>PO</th><th>Amount</th><th>Due</th><th>Bonded</th><th>Status</th></tr></thead>
+          <thead><tr><th>No Invoice</th><th>PO</th><th>Amount</th><th>Due</th><th>Bonded</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            {rows.length===0 && <tr><td colSpan={6} className="text-center py-6 text-slate-400">Belum ada invoice</td></tr>}
+            {rows.length===0 && <tr><td colSpan={7} className="text-center py-6 text-slate-400">Belum ada invoice</td></tr>}
             {rows.map(i=>(
               <tr key={i.id} data-testid={`vi-row-${i.id}`}>
                 <td className="font-mono text-xs">{i.invoice_number}</td>
                 <td className="font-mono text-xs">{i.po_number}</td>
-                <td className="font-mono font-semibold">{fmtIDR(i.amount)}</td>
+                <td className="font-mono font-semibold">{fmtIDR(i.amount_total || i.amount)}</td>
                 <td className="text-xs">{i.due_date||"-"}</td>
                 <td>{i.is_bonded?<span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">Bonded</span>:"-"}</td>
                 <td><span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS[i.status]}`}>{i.status}</span></td>
+                <td className="text-right"><button onClick={()=>setDetailId(i.id)} className="p-1 hover:bg-slate-100 rounded" data-testid={`vi-view-${i.id}`}><Eye size={14}/></button></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      <InvoiceDetailSheet invoiceId={detailId} source="vendor" onClose={()=>setDetailId(null)}/>
     </div>
   );
 }
@@ -986,6 +1046,23 @@ export function VendorPricelists() {
       setOpen(false); setForm({ product_id:"", price:"", currency:"IDR", min_qty:1, notes:"" }); load();
     } catch(e){ toast.error(e.response?.data?.detail || "Gagal"); }
   };
+  const bulkUpload = async (file) => {
+    setUploading(true);
+    try {
+      const fd = new FormData(); fd.append("file", file);
+      const t = localStorage.getItem("epr-token");
+      const r = await fetch(`${API_URL}/api/vendor-portal/pricelists/bulk`, { method:"POST", credentials:"include", headers: t?{Authorization:`Bearer ${t}`}:{}, body: fd });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || "Bulk upload gagal");
+      toast.success(`Berhasil impor ${d.created} baris (dari ${d.total_rows})`);
+      if ((d.errors||[]).length > 0) {
+        toast.warning(`${d.errors.length} baris error — lihat konsol`, { description: JSON.stringify(d.errors.slice(0,3)) });
+        console.warn("Bulk pricelist errors:", d.errors);
+      }
+      load();
+    } catch(e){ toast.error(e.message); }
+    finally { setUploading(false); }
+  };
   const remove = async (id) => {
     if (!confirm("Hapus daftar harga ini?")) return;
     await api.delete(`/vendor-portal/pricelists/${id}`);
@@ -1013,8 +1090,15 @@ export function VendorPricelists() {
           <h1 className="font-heading text-3xl font-bold tracking-tight">Daftar Harga Saya</h1>
           <p className="text-sm text-slate-600 mt-1">Publikasikan harga produk Anda agar tim procurement dapat melihat penawaran terkini saat merencanakan pembelian.</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild><Button data-testid="vpl-add-btn"><Plus size={14}/> Tambah Harga</Button></DialogTrigger>
+        <div className="flex gap-2 items-center">
+          <label className="cursor-pointer">
+            <input type="file" className="hidden" accept=".csv,.xlsx,.xls" onChange={e=>{const f=e.target.files?.[0]; if(f){bulkUpload(f); e.target.value="";}}} disabled={uploading} data-testid="vpl-bulk-input"/>
+            <span className={`inline-flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium border ${uploading?"bg-slate-200 text-slate-500 border-slate-300":"bg-white text-slate-700 border-slate-300 hover:bg-slate-50"}`} data-testid="vpl-bulk-btn">
+              <FileUp size={12}/>{uploading?"Mengunggah...":"Bulk Upload (CSV/XLSX)"}
+            </span>
+          </label>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild><Button data-testid="vpl-add-btn"><Plus size={14}/> Tambah Harga</Button></DialogTrigger>
           <DialogContent>
             <DialogHeader><DialogTitle>Tambah Harga Produk</DialogTitle></DialogHeader>
             <div className="space-y-3">
@@ -1049,12 +1133,16 @@ export function VendorPricelists() {
             <DialogFooter><Button onClick={submit} disabled={uploading} data-testid="vpl-save">Simpan Harga</Button></DialogFooter>
           </DialogContent>
         </Dialog>
+        </div>
+      </div>
+      <div className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded p-2">
+        <b>Format Bulk CSV/XLSX:</b> kolom wajib <code>product_code</code> &amp; <code>price</code>; opsional <code>currency</code>, <code>min_qty</code>, <code>valid_from</code>, <code>valid_until</code>, <code>notes</code>.
       </div>
       <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
-          <thead><tr><th>Produk</th><th>Harga</th><th>Min Qty</th><th>Berlaku</th><th>File</th><th>Catatan</th><th></th></tr></thead>
+          <thead><tr><th>Produk</th><th>Harga</th><th>Min Qty</th><th>Berlaku</th><th>Verified</th><th>File</th><th>Catatan</th><th></th></tr></thead>
           <tbody>
-            {rows.length===0 && <tr><td colSpan={7} className="text-center py-6 text-slate-400">Belum ada harga. Klik "Tambah Harga".</td></tr>}
+            {rows.length===0 && <tr><td colSpan={8} className="text-center py-6 text-slate-400">Belum ada harga. Klik "Tambah Harga".</td></tr>}
             {rows.map(r=>(
               <tr key={r.id} data-testid={`vpl-row-${r.id}`}>
                 <td>
@@ -1064,6 +1152,11 @@ export function VendorPricelists() {
                 <td className="font-mono font-semibold">{r.currency||"IDR"} {(r.price||0).toLocaleString("id-ID")}</td>
                 <td>{r.min_qty||1}</td>
                 <td className="text-xs">{r.valid_from||"-"} → {r.valid_until||"-"}</td>
+                <td>
+                  {r.verified ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700" title={`Diverifikasi ${r.verified_by_name||""} pada ${r.verified_at||""}`} data-testid={`vpl-verified-${r.id}`}>✓ Verified</span>
+                  ) : <span className="text-slate-400 text-[10px]">Belum</span>}
+                </td>
                 <td>{r.file_url ? <a href={r.file_url} target="_blank" rel="noreferrer" className="text-blue-700 underline text-xs">{r.filename||"file"}</a> : <span className="text-slate-400 text-xs">-</span>}</td>
                 <td className="text-xs">{r.notes||"-"}</td>
                 <td className="text-right"><button onClick={()=>remove(r.id)} data-testid={`vpl-del-${r.id}`}><Trash2 size={14} className="text-slate-400 hover:text-red-500"/></button></td>

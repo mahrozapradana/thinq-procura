@@ -24,3 +24,9 @@ crons:
     endpoint: "{{BASE_URL}}/api/cron/tender-draft-reminders"
     method: GET
     enabled: true
+  - name: sealed-auto-reveal
+    description: "Every 5 min: auto-reveal sealed tenders whose deadline has passed"
+    cron: "*/5 * * * *"
+    endpoint: "{{BASE_URL}}/api/cron/sealed-auto-reveal"
+    method: GET
+    enabled: true
