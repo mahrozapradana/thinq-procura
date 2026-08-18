@@ -56,6 +56,7 @@ export default function SettingsPage() {
           <TabsTrigger value="company" data-testid="tab-company">Company</TabsTrigger>
           <TabsTrigger value="odoo" data-testid="tab-odoo">Odoo XML-RPC</TabsTrigger>
           <TabsTrigger value="notif" data-testid="tab-notif">Email SMTP</TabsTrigger>
+          <TabsTrigger value="delegation" data-testid="tab-delegation">Delegation</TabsTrigger>
         </TabsList>
         <TabsContent value="company" className="mt-4">
           <div className="bg-white border border-slate-200 rounded-md p-6 max-w-2xl space-y-4">
@@ -125,7 +126,40 @@ export default function SettingsPage() {
             </div>
           </div>
         </TabsContent>
+        <TabsContent value="delegation" className="mt-4">
+          <DelegationPanel/>
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function DelegationPanel() {
+  const [d, setD] = useState({ delegated_to: "", delegated_until: "" });
+  const [users, setUsers] = useState([]);
+  useEffect(()=>{
+    api.get("/users/me/delegation").then(r=>setD({ delegated_to: r.data.delegated_to || "", delegated_until: r.data.delegated_until || "" })).catch(()=>{});
+    api.get("/users").then(r=>setUsers(r.data)).catch(()=>setUsers([]));
+  },[]);
+  const save = async () => {
+    try {
+      const me = await api.get("/auth/me");
+      await api.put(`/users/${me.data.id}/delegation`, { delegated_to: d.delegated_to || null, delegated_until: d.delegated_until || null });
+      toast.success("Delegation tersimpan");
+    } catch(e) { toast.error(e.response?.data?.detail); }
+  };
+  return (
+    <div className="bg-white border border-slate-200 rounded-md p-6 max-w-xl space-y-4">
+      <div className="p-3 border border-blue-200 bg-blue-50 rounded text-xs text-blue-800">Saat Anda cuti/tidak tersedia, delegate akan tampil di UI sebagai approver alternatif untuk PR/PO Anda.</div>
+      <div>
+        <Label className="label-tiny">Delegate To (User)</Label>
+        <select value={d.delegated_to||""} onChange={e=>setD({...d, delegated_to: e.target.value})} className="w-full h-10 border border-slate-200 rounded px-2 text-sm" data-testid="deleg-user">
+          <option value="">— tidak ada delegasi —</option>
+          {users.map(u=><option key={u.id} value={u.id}>{u.name} · {u.role} · {u.email}</option>)}
+        </select>
+      </div>
+      <div><Label className="label-tiny">Berlaku Sampai</Label><Input type="date" value={d.delegated_until||""} onChange={e=>setD({...d,delegated_until:e.target.value})} data-testid="deleg-until"/></div>
+      <Button onClick={save} data-testid="deleg-save">Simpan Delegation</Button>
     </div>
   );
 }

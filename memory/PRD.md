@@ -126,3 +126,12 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - PUT /api/vendor-portal/profile-extended · PUT /api/vendors/{id}/profile-extended
 - PUT /api/users/{id}/delegation · GET /api/users/me/delegation
 - GET /api/mobile-approve?token=…
+
+## Iteration 6 – 2026-02-14
+### Added
+- **PO Print PDF**: GET /api/pos/{id}/print.pdf → Odoo-style: header (Vendor/VendorCode/Warehouse/Payment Terms/OrderDate/ReceiptDate/Vendor Forecast/Projects), item table (Product/Description/Projects/Qty/Unit Price/Taxes/Subtotal), footer (Untaxed/DPP/Tax/Total). Frontend button in PO detail sheet.
+- **PO Chat**: GET/POST /api/pos/{id}/messages, threaded buyer↔vendor. Vendor sees left blue bubbles (self), buyer right slate. Same on both procurement & vendor portal side (RBAC enforced).
+- **PIC Login**: POST /api/vendors/{vid}/pics/create-login → provisions a vendor-role user tied to same vendor_id, with is_pic=true. Frontend button per PIC row in Vendor Portal > Profile > PIC tab.
+- **Delegation UI**: Settings > Delegation tab. User picks delegate + until date; PUT /api/users/{id}/delegation. Bug fix: compile error 'total' duplicate declaration in PurchaseRequests.jsx (renamed to formTotal).
+### Verified
+- PO PDF 200 (~2.5KB) · Chat send + list OK · SMTP live · Supabase LS upload OK · Cron endpoint auth OK.

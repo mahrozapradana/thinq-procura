@@ -8,7 +8,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Merge, Check, X, Eye, Send, Download, Star } from "lucide-react";
+import { Merge, Check, X, Eye, Send, Download, Star, Printer, MessageSquare } from "lucide-react";
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 async function downloadReport(path, filename) {
@@ -72,6 +72,20 @@ export default function PurchaseOrders() {
       setDetail(upd.data);
       load();
     } catch(e) { toast.error(e.response?.data?.detail); }
+  };
+  const [messages, setMessages] = useState([]);
+  const [msgText, setMsgText] = useState("");
+  const loadMsgs = async (id) => { try { const r = await api.get(`/pos/${id}/messages`); setMessages(r.data); } catch {} };
+  const sendMsg = async () => {
+    if (!msgText.trim()) return;
+    try { const r = await api.post(`/pos/${detail.id}/messages`, { text: msgText }); setMessages(m=>[...m, r.data]); setMsgText(""); }
+    catch(e) { toast.error(e.response?.data?.detail); }
+  };
+  useEffect(() => { if (detail) loadMsgs(detail.id); }, [detail?.id]);
+  const printPO = () => {
+    const t = localStorage.getItem("access_token");
+    fetch(`${process.env.REACT_APP_BACKEND_URL}/api/pos/${detail.id}/print.pdf`, { credentials: "include", headers: t ? { Authorization: `Bearer ${t}` } : {} })
+      .then(r=>r.blob()).then(b=>{ const u=URL.createObjectURL(b); const a=document.createElement("a"); a.href=u; a.download=`PO_${detail.po_number}.pdf`; a.click(); URL.revokeObjectURL(u); });
   };
 
   return (
@@ -171,7 +185,12 @@ export default function PurchaseOrders() {
         <SheetContent className="w-full sm:max-w-2xl overflow-y-auto bg-white">
           {detail && (
             <>
-              <SheetHeader><SheetTitle className="font-mono">#{detail.po_number}</SheetTitle></SheetHeader>
+              <SheetHeader>
+                <div className="flex items-center justify-between">
+                  <SheetTitle className="font-mono">#{detail.po_number}</SheetTitle>
+                  <Button size="sm" variant="outline" onClick={printPO} data-testid="po-print"><Printer size={14}/> Print PDF</Button>
+                </div>
+              </SheetHeader>
               <div className="mt-4 space-y-4">
                 <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
                   <div><div className="label-tiny">Vendor</div><div className="font-semibold">{detail.vendor_name || vendors.find(v=>v.id===detail.vendor_id)?.company_name}</div></div>
@@ -241,6 +260,23 @@ export default function PurchaseOrders() {
                     )}
                   </div>
                 )}
+                {/* Chat */}
+                <div className="border border-slate-200 rounded p-3" data-testid="po-chat">
+                  <div className="flex items-center gap-2 mb-2"><MessageSquare size={14}/><div className="label-tiny">Chat Buyer ↔ Vendor</div></div>
+                  <div className="max-h-64 overflow-y-auto space-y-2 mb-2">
+                    {messages.length === 0 && <div className="text-xs text-slate-400 text-center py-4">Belum ada pesan</div>}
+                    {messages.map(m=>(
+                      <div key={m.id} className={`text-sm p-2 rounded ${m.side==="vendor"?"bg-blue-50 mr-8":"bg-slate-100 ml-8"}`}>
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">{m.user_name} · {m.user_role} · {new Date(m.created_at).toLocaleString("id-ID")}</div>
+                        <div className="mt-0.5">{m.text}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <input value={msgText} onChange={e=>setMsgText(e.target.value)} onKeyDown={e=>e.key==="Enter" && sendMsg()} placeholder="Tulis pesan…" className="flex-1 text-sm border border-slate-200 rounded px-2 py-1.5" data-testid="po-chat-input"/>
+                    <Button size="sm" onClick={sendMsg} data-testid="po-chat-send"><Send size={12}/></Button>
+                  </div>
+                </div>
               </div>
             </>
           )}

@@ -454,11 +454,19 @@ export function VendorProfile() {
           <div className="flex justify-between"><div className="label-tiny">Person in Charge (PIC)</div><Button size="sm" variant="outline" onClick={addPIC} data-testid="vp-pic-add">+ PIC</Button></div>
           {(p.pics||[]).length===0 && <div className="text-xs text-slate-500">Belum ada PIC.</div>}
           {(p.pics||[]).map((x,i)=>(
-            <div key={i} className="grid grid-cols-5 gap-2 border border-slate-200 rounded p-2 items-end" data-testid={`vp-pic-${i}`}>
+            <div key={i} className="grid grid-cols-6 gap-2 border border-slate-200 rounded p-2 items-end" data-testid={`vp-pic-${i}`}>
               <Input placeholder="Nama" value={x.name} onChange={e=>setPIC(i,"name",e.target.value)}/>
               <Input placeholder="Jabatan" value={x.role} onChange={e=>setPIC(i,"role",e.target.value)}/>
               <Input placeholder="Phone" value={x.phone} onChange={e=>setPIC(i,"phone",e.target.value)}/>
               <Input placeholder="Email" value={x.email} onChange={e=>setPIC(i,"email",e.target.value)}/>
+              <button onClick={async ()=>{
+                if (!x.email) return toast.error("Email PIC wajib untuk login");
+                try {
+                  const r = await api.post(`/vendors/${p.id}/pics/create-login`, { pic_index: i, password: "vendor123" });
+                  toast.success(x.user_id ? "PIC sudah punya login" : `Login dibuat. Password: ${r.data.default_password}`);
+                  const fresh = await api.get("/vendor-portal/profile"); setP(fresh.data);
+                } catch(e) { toast.error(e.response?.data?.detail); }
+              }} className="text-xs px-2 py-1 bg-slate-900 text-white rounded" data-testid={`vp-pic-login-${i}`}>{x.user_id ? "Sudah Login" : "Buat Login"}</button>
               <button onClick={()=>rmPIC(i)} className="text-red-500 justify-self-end">×</button>
             </div>
           ))}

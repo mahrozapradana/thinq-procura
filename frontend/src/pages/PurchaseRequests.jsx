@@ -95,7 +95,7 @@ export default function PurchaseRequests() {
   const reject = async (id) => { await api.post(`/prs/${id}/reject`); toast.success("Rejected"); load(); if(detail) refresh(id); };
   const refresh = (id) => api.get(`/prs/${id}`).then(r=>setDetail(r.data));
 
-  const total = form.items.reduce((s,i)=>s+(parseFloat(i.qty||0)*parseFloat(i.price||0)),0);
+  const formTotal = form.items.reduce((s,i)=>s+(parseFloat(i.qty||0)*parseFloat(i.price||0)),0);
 
   return (
     <div className="space-y-4" data-testid="pr-page">
@@ -154,7 +154,7 @@ export default function PurchaseRequests() {
                     <div className="col-span-1 text-right pb-1"><button onClick={()=>rmItem(i)}><Trash2 size={14} className="text-red-500"/></button></div>
                   </div>
                 ))}
-                <div className="mt-2 flex justify-end text-sm font-heading font-bold">Total: <span className="ml-2 font-mono">{fmtIDR(total)}</span></div>
+                <div className="mt-2 flex justify-end text-sm font-heading font-bold">Total: <span className="ml-2 font-mono">{fmtIDR(formTotal)}</span></div>
               </div>
 
               {/* Budget preview */}

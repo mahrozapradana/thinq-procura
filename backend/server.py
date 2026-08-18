@@ -31,6 +31,7 @@ from routes_reports import router as reports_router
 from routes_uploads import router as uploads_router
 from routes_cron import router as cron_router
 from routes_extended import router as extended_router
+from routes_po_extras import router as po_extras_router
 
 
 logging.basicConfig(
@@ -124,6 +125,7 @@ app.include_router(reports_router)
 app.include_router(uploads_router)
 app.include_router(cron_router)
 app.include_router(extended_router)
+app.include_router(po_extras_router)
 
 
 # ---------- CORS ----------
