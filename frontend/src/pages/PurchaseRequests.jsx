@@ -9,7 +9,16 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Plus, Trash2, Check, X, Eye } from "lucide-react";
+import { Plus, Trash2, Check, X, Eye, Download } from "lucide-react";
+
+const API_URL = process.env.REACT_APP_BACKEND_URL;
+async function downloadReport(path, filename) {
+  const t = localStorage.getItem("access_token");
+  const r = await fetch(`${API_URL}/api${path}`, { credentials: "include", headers: t ? { Authorization: `Bearer ${t}` } : {} });
+  const b = await r.blob();
+  const url = URL.createObjectURL(b);
+  const a = document.createElement("a"); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+}
 
 const STATUS_STYLE = {
   approved: "bg-emerald-100 text-emerald-700",
@@ -61,7 +70,10 @@ export default function PurchaseRequests() {
           <div className="label-tiny">Procurement</div>
           <h1 className="font-heading text-3xl font-bold tracking-tight">Purchase Requests</h1>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={()=>downloadReport("/reports/prs.csv","purchase_requests.csv")} data-testid="pr-export-csv"><Download size={14}/> CSV</Button>
+          <Button variant="outline" size="sm" onClick={()=>downloadReport("/reports/prs.pdf","purchase_requests.pdf")} data-testid="pr-export-pdf"><Download size={14}/> PDF</Button>
+          <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button data-testid="pr-add-btn"><Plus size={14}/> Buat PR</Button></DialogTrigger>
           <DialogContent className="max-w-3xl">
             <DialogHeader><DialogTitle>Buat Purchase Request</DialogTitle></DialogHeader>
@@ -115,6 +127,7 @@ export default function PurchaseRequests() {
             <DialogFooter><Button onClick={submit} disabled={!form.items.length || !form.department_id} data-testid="pr-save">Buat PR</Button></DialogFooter>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-md overflow-hidden">

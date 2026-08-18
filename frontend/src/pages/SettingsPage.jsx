@@ -7,29 +7,43 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, PlugZap, Send } from "lucide-react";
 
 export default function SettingsPage() {
   const [c, setC] = useState(null);
   const [o, setO] = useState(null);
+  const [n, setN] = useState(null);
+  const [testEmail, setTestEmail] = useState("");
 
   const load = () => {
     api.get("/settings/company").then(r=>setC(r.data));
     api.get("/settings/odoo").then(r=>setO(r.data));
+    api.get("/settings/notifications").then(r=>setN(r.data)).catch(()=>setN({}));
   };
   useEffect(()=>{ load(); },[]);
 
   const saveC = async () => { try{ await api.put("/settings/company", c); toast.success("Company settings updated"); }catch(e){toast.error(e.response?.data?.detail);} };
   const saveO = async () => { try{ await api.put("/settings/odoo", o); toast.success("Odoo settings updated"); }catch(e){toast.error(e.response?.data?.detail);} };
-  const syncOdoo = async (endpoint, label) => {
+  const saveN = async () => { try{ await api.put("/settings/notifications", n); toast.success("SMTP settings updated"); }catch(e){toast.error(e.response?.data?.detail);} };
+  const syncOdoo = async (endpoint) => {
     try {
       const r = await api.post(`/odoo/sync/${endpoint}`);
-      toast.success(`${r.data.message} ${r.data.mocked ? "(MOCKED)" : ""}`);
+      const flag = r.data.mocked ? "(MOCKED)" : "(LIVE)";
+      toast.success(`${r.data.message} ${flag}`);
       load();
     } catch(e){ toast.error(e.response?.data?.detail); }
   };
+  const testOdoo = async () => {
+    try { const r = await api.post("/odoo/test"); r.data.ok ? toast.success(`Konek! uid=${r.data.uid}, db=${r.data.db}`) : toast.error(r.data.message); }
+    catch(e){ toast.error(e.response?.data?.detail); }
+  };
+  const sendTest = async () => {
+    if (!testEmail) return toast.error("Isi email tujuan");
+    try { const r = await api.post("/settings/notifications/test", { to: testEmail }); r.data.ok ? toast.success(r.data.message) : toast.error(r.data.message); }
+    catch(e){ toast.error(e.response?.data?.detail); }
+  };
 
-  if (!c || !o) return <div className="text-sm text-slate-500">Memuat...</div>;
+  if (!c || !o || !n) return <div className="text-sm text-slate-500">Memuat...</div>;
 
   return (
     <div className="space-y-4" data-testid="settings-page">
@@ -40,7 +54,8 @@ export default function SettingsPage() {
       <Tabs defaultValue="company">
         <TabsList className="bg-slate-100">
           <TabsTrigger value="company" data-testid="tab-company">Company</TabsTrigger>
-          <TabsTrigger value="odoo" data-testid="tab-odoo">Odoo Integration</TabsTrigger>
+          <TabsTrigger value="odoo" data-testid="tab-odoo">Odoo XML-RPC</TabsTrigger>
+          <TabsTrigger value="notif" data-testid="tab-notif">Email SMTP</TabsTrigger>
         </TabsList>
         <TabsContent value="company" className="mt-4">
           <div className="bg-white border border-slate-200 rounded-md p-6 max-w-2xl space-y-4">
@@ -54,7 +69,7 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between border border-slate-200 rounded p-3">
               <div>
                 <div className="text-sm font-semibold">Kawasan Berikat (Bonded Zone)</div>
-                <div className="text-xs text-slate-500">Mengaktifkan fitur PO Bonded, LS documents, HS code untuk kepabeanan.</div>
+                <div className="text-xs text-slate-500">Aktifkan fitur PO Bonded, LS documents, HS code untuk kepabeanan.</div>
               </div>
               <Switch checked={!!c.is_bonded_zone} onCheckedChange={v=>setC({...c,is_bonded_zone:v})} data-testid="cs-bonded"/>
             </div>
@@ -63,26 +78,51 @@ export default function SettingsPage() {
         </TabsContent>
         <TabsContent value="odoo" className="mt-4">
           <div className="bg-white border border-slate-200 rounded-md p-6 max-w-2xl space-y-4">
-            <div className="p-3 border border-amber-200 bg-amber-50 rounded text-xs text-amber-800">
-              <strong>MOCKED:</strong> Endpoint sync ke Odoo saat ini masih simulasi. Aktifkan setelah kredensial Odoo asli diinput.
+            <div className={`p-3 border rounded text-xs ${o.enabled?"border-emerald-200 bg-emerald-50 text-emerald-800":"border-amber-200 bg-amber-50 text-amber-800"}`}>
+              <strong>{o.enabled?"LIVE MODE":"MOCK MODE"}:</strong> {o.enabled ? "Sync akan panggil Odoo XML-RPC sesungguhnya." : "Isi kredensial lalu aktifkan 'Enable Integration' untuk sync live."}
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div><Label className="label-tiny">Odoo URL</Label><Input value={o.odoo_url||""} onChange={e=>setO({...o,odoo_url:e.target.value})} data-testid="odoo-url"/></div>
+              <div><Label className="label-tiny">Odoo URL</Label><Input value={o.odoo_url||""} onChange={e=>setO({...o,odoo_url:e.target.value})} placeholder="https://xxx.odoo.com" data-testid="odoo-url"/></div>
               <div><Label className="label-tiny">Database</Label><Input value={o.odoo_db||""} onChange={e=>setO({...o,odoo_db:e.target.value})} data-testid="odoo-db"/></div>
               <div><Label className="label-tiny">Username</Label><Input value={o.odoo_username||""} onChange={e=>setO({...o,odoo_username:e.target.value})} data-testid="odoo-user"/></div>
               <div><Label className="label-tiny">API Key</Label><Input type="password" value={o.odoo_api_key||""} onChange={e=>setO({...o,odoo_api_key:e.target.value})} data-testid="odoo-key"/></div>
             </div>
             <div className="flex items-center justify-between border border-slate-200 rounded p-3">
-              <div className="text-sm font-semibold">Enable Integration</div>
+              <div className="text-sm font-semibold">Enable Integration (Live XML-RPC)</div>
               <Switch checked={!!o.enabled} onCheckedChange={v=>setO({...o,enabled:v})} data-testid="odoo-enabled"/>
             </div>
             <div className="flex gap-2 flex-wrap">
               <Button onClick={saveO} data-testid="odoo-save">Simpan Konfigurasi</Button>
+              <Button variant="outline" onClick={testOdoo} data-testid="odoo-test"><PlugZap size={14}/> Test Koneksi</Button>
               <Button variant="outline" onClick={()=>syncOdoo("products")} data-testid="odoo-sync-products"><RefreshCw size={14}/> Sync Products</Button>
               <Button variant="outline" onClick={()=>syncOdoo("vendors")} data-testid="odoo-sync-vendors"><RefreshCw size={14}/> Sync Vendors</Button>
               <Button variant="outline" onClick={()=>syncOdoo("pos")} data-testid="odoo-sync-pos"><RefreshCw size={14}/> Sync POs</Button>
             </div>
             {o.last_sync && <div className="text-xs text-slate-500">Last sync: {new Date(o.last_sync).toLocaleString("id-ID")}</div>}
+          </div>
+        </TabsContent>
+        <TabsContent value="notif" className="mt-4">
+          <div className="bg-white border border-slate-200 rounded-md p-6 max-w-2xl space-y-4">
+            <div className={`p-3 border rounded text-xs ${n.enabled?"border-emerald-200 bg-emerald-50 text-emerald-800":"border-slate-200 bg-slate-50 text-slate-700"}`}>
+              <strong>Email Notifikasi:</strong> Kirim notifikasi ke approver otomatis saat ada PR/PO/Budget menunggu approval. {!n.enabled && "Isi SMTP lalu enable."}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="label-tiny">SMTP Host</Label><Input value={n.smtp_host||""} onChange={e=>setN({...n,smtp_host:e.target.value})} placeholder="smtp.gmail.com" data-testid="smtp-host"/></div>
+              <div><Label className="label-tiny">SMTP Port</Label><Input type="number" value={n.smtp_port||587} onChange={e=>setN({...n,smtp_port:parseInt(e.target.value||587)})} data-testid="smtp-port"/></div>
+              <div><Label className="label-tiny">Username</Label><Input value={n.smtp_username||""} onChange={e=>setN({...n,smtp_username:e.target.value})} data-testid="smtp-user"/></div>
+              <div><Label className="label-tiny">Password / App Password</Label><Input type="password" value={n.smtp_password||""} onChange={e=>setN({...n,smtp_password:e.target.value})} data-testid="smtp-pass"/></div>
+              <div><Label className="label-tiny">From Email</Label><Input value={n.from_email||""} onChange={e=>setN({...n,from_email:e.target.value})} placeholder="noreply@company.com" data-testid="smtp-from"/></div>
+              <div className="flex items-center gap-3 pt-6"><Switch checked={!!n.use_tls} onCheckedChange={v=>setN({...n,use_tls:v})} data-testid="smtp-tls"/><span className="text-xs">Gunakan STARTTLS (port 587)</span></div>
+            </div>
+            <div className="flex items-center justify-between border border-slate-200 rounded p-3">
+              <div className="text-sm font-semibold">Enable Email Notifications</div>
+              <Switch checked={!!n.enabled} onCheckedChange={v=>setN({...n,enabled:v})} data-testid="smtp-enabled"/>
+            </div>
+            <div className="flex gap-2 flex-wrap items-end">
+              <Button onClick={saveN} data-testid="smtp-save">Simpan SMTP</Button>
+              <div className="flex-1 min-w-[200px]"><Label className="label-tiny">Test Email ke</Label><Input value={testEmail} onChange={e=>setTestEmail(e.target.value)} placeholder="you@example.com" data-testid="smtp-test-to"/></div>
+              <Button variant="outline" onClick={sendTest} data-testid="smtp-test-send"><Send size={14}/> Kirim Test</Button>
+            </div>
           </div>
         </TabsContent>
       </Tabs>

@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 2 backend testing: per-item budget enforcement (product override dept), CSV+PDF report exports (PR/PO/Budget), Supabase LS file upload, Odoo XML-RPC test/sync endpoints (mock mode), and SMTP notification settings. Wrote /app/backend/tests/test_iteration2_features.py with 24 tests — 24/24 PASSED against public preview URL.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/uploads/ls", "issue": "Endpoint returns 502 with a helpful JSON detail mentioning 'bucket' and 'ls-documents' when the Supabase bucket does not exist (verified in backend log: 'Bucket not found' NoSuchBucket). However, the Kubernetes/Cloudflare ingress intercepts any 5xx and replaces the response body with its own HTML 'bad gateway' page — so the frontend user never sees the friendly message. Recommend returning HTTP 400/422 (or 424 Failed Dependency) with the same detail so the ingress doesn't strip it."},
+      {"endpoint": "GET /api/settings/odoo", "issue": "Still readable by any authenticated user (incl. vendor/requester). Was flagged in iteration 1 and not yet fixed. GET /api/settings/notifications is correctly admin-only (verified 403 for requester)."},
+      {"endpoint": "PUT /api/settings/notifications", "issue": "smtp_password is echoed back plaintext in the response and stored plaintext in Mongo. Consider masking on GET (e.g., return '***' instead of the stored value)."},
+      {"endpoint": "POST /api/odoo/test", "issue": "Message returned when disabled is 'Odoo tidak enabled atau kredensial belum lengkap.' — string contains the substring 'enabled' but with Indonesian phrasing. Frontend should not rely on exact English match."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration2_features.py",
+    "/app/test_reports/pytest/iter2_results.xml"
+  ],
+  "action_items": [
+    "Change POST /api/uploads/ls to return HTTP 400 (or 422) instead of 502 when Supabase returns 4xx/5xx — this preserves the helpful 'bucket ls-documents' message through the ingress (currently swallowed by Cloudflare bad-gateway page).",
+    "Restrict GET /api/settings/odoo to admin only (matches /api/settings/notifications behavior).",
+    "Mask smtp_password in GET responses (do not return the stored plaintext)."
+  ],
+  "critical_code_review_comments": [
+    "routes_uploads.py: raising HTTPException(502) at the app layer is masked by the K8s ingress which replaces 5xx bodies. Prefer 4xx status for user-actionable configuration errors so the JSON detail reaches the client.",
+    "notifications.py send_email swallows exceptions and returns False — good for resilience, but /settings/notifications/test always returns 200 with ok:false; consider surfacing the smtplib error string in the response message for admin troubleshooting.",
+    "odoo_client.py get_odoo_client(): treats missing url/db/username/api_key as 'not enabled' (returns None) — silently mocks. Users who enabled Odoo but forgot a field get mock behavior without warning. Add a distinct return message.",
+    "routes_procurement._budget_plan does not decrement used_amount on PR reject-after-approval or PO cancellation flows — same debt as noted in iteration 1.",
+    "routes_reports.py: PDF generation is synchronous CPU-bound (reportlab); would benefit from asyncio.to_thread for large tables."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration2_features.py"
+  ],
+  "success_rate": {"backend": "100% (24/24 iteration-2 tests) + iteration-1 41/41 unaffected", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "Admin: mahrozapradana46@gmail.com / admin123 (verified).",
+  "seed_data_creation": "Iter2 test seeds: 1 dept (TEST_ITER2_Dept), 1 category, 2 products (P1/P2), 2 approved budgets (dept 10jt SEMUA, product P1 3jt), 1 approved mixed-budget PR (7jt: P1 2jt + P2 5jt), 1 requester test user (for 403 check), notification_settings singleton populated, odoo_settings singleton set enabled=false.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 2 tests live in /app/backend/tests/test_iteration2_features.py. Run with `pytest tests/test_iteration2_features.py -n 0` (module STATE dict shared across classes). Behavior verified: per-item budget picks product-specific budget first then falls back to dept product_id=None; consumption is applied per-budget-id on final PR approval (P1 budget used=2M, dept budget used=5M). Supabase upload against bucket 'ls-documents' currently returns backend 502 (bucket missing on the Supabase project) and ingress replaces body with HTML — see action_items to change status to 4xx. Odoo mock mode confirmed working when odoo_settings.enabled=false.",
+  "rca of the issue": "Upload LS visible-error masking: FastAPI raises HTTPException(status_code=502, detail='Upload ke Supabase gagal ... bucket ls-documents ...'). Preview traffic goes through Cloudflare ingress which treats any 5xx as an origin failure and substitutes its own 502 error HTML, so client never sees the JSON detail. Fix: use 4xx (400/422/424) since this is a config error, not a gateway failure."
+}

@@ -8,7 +8,16 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Merge, Check, X, Eye, Send } from "lucide-react";
+import { Merge, Check, X, Eye, Send, Download } from "lucide-react";
+
+const API_URL = process.env.REACT_APP_BACKEND_URL;
+async function downloadReport(path, filename) {
+  const t = localStorage.getItem("access_token");
+  const r = await fetch(`${API_URL}/api${path}`, { credentials: "include", headers: t ? { Authorization: `Bearer ${t}` } : {} });
+  const b = await r.blob();
+  const url = URL.createObjectURL(b);
+  const a = document.createElement("a"); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+}
 
 const STATUS_STYLE = {
   approved: "bg-emerald-100 text-emerald-700",
@@ -55,7 +64,11 @@ export default function PurchaseOrders() {
           <div className="label-tiny">Procurement</div>
           <h1 className="font-heading text-3xl font-bold tracking-tight">Purchase Orders</h1>
         </div>
-        <Button onClick={()=>setMergeOpen(true)} data-testid="po-merge-btn"><Merge size={14}/> Merge PR → PO</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={()=>downloadReport("/reports/pos.csv","purchase_orders.csv")} data-testid="po-export-csv"><Download size={14}/> CSV</Button>
+          <Button variant="outline" size="sm" onClick={()=>downloadReport("/reports/pos.pdf","purchase_orders.pdf")} data-testid="po-export-pdf"><Download size={14}/> PDF</Button>
+          <Button onClick={()=>setMergeOpen(true)} data-testid="po-merge-btn"><Merge size={14}/> Merge PR → PO</Button>
+        </div>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-md overflow-hidden">

@@ -64,3 +64,20 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - P2: Reporting/export CSV
 - P2: Custom PR/PO templates
 - P2: Multi-currency
+
+## Iteration 2 – 2026-02-14 (5 features added)
+1. **Per-Barang Budget enforcement** — `_budget_plan` in `routes_procurement.py`: setiap item PR memilih budget produk (dept+product_id) dulu, fallback ke dept-level (product_id=None). Konsumsi tercatat per-budget-id di `budget_map` PR dan didecrement saat PR fully approved.
+2. **CSV + PDF Report Export** — `routes_reports.py`: /api/reports/{prs,pos,budgets}.{csv,pdf}. PDF via reportlab.
+3. **Upload LS Files → Supabase Storage** — `routes_uploads.py`: POST /api/uploads/ls (multipart). Bucket 'ls-documents' harus dibuat manual di dashboard Supabase (dengan policy INSERT untuk anon), URL/key sudah tersedia di backend/.env.
+4. **Odoo XML-RPC live** — `odoo_client.py` + endpoints /api/odoo/test, /api/odoo/sync/{products,vendors,pos}. Jika enabled=false → mock mode (`mocked:true`). Enable via Settings.
+5. **Email SMTP notifications** — `notifications.py` + /api/settings/notifications + /api/settings/notifications/test. Auto-kirim ke approver level saat ada PR/PO/Budget pending. Config via Settings > Email SMTP tab.
+
+### Additional fixes
+- GET /api/settings/odoo restricted to admin, api_key masked as '***' on read
+- GET /api/settings/notifications masks smtp_password as '***' on read; PUT preserves stored value when '***' or empty received
+- Upload endpoint returns 424 (not 502) so ingress preserves error message
+
+## Test Results
+- Iteration 1: 41/41 tests passed
+- Iteration 2: 24/24 tests passed
+- Combined: 65/65

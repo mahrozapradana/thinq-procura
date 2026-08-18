@@ -7,7 +7,23 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Send, XCircle, Plus, FileUp } from "lucide-react";
+import { Send, XCircle, Plus, FileUp, Upload } from "lucide-react";
+
+const API_URL = process.env.REACT_APP_BACKEND_URL;
+async function uploadFile(file) {
+  const t = localStorage.getItem("access_token");
+  const fd = new FormData();
+  fd.append("file", file);
+  const r = await fetch(`${API_URL}/api/uploads/ls`, {
+    method: "POST",
+    credentials: "include",
+    headers: t ? { Authorization: `Bearer ${t}` } : {},
+    body: fd,
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.detail || "Upload gagal");
+  return d;
+}
 
 const STATUS = {
   open:"bg-emerald-100 text-emerald-700", closed:"bg-amber-100 text-amber-700", awarded:"bg-blue-100 text-blue-700",
@@ -273,7 +289,19 @@ export function VendorLS() {
                   ))}
                 </div>
               </div>
-              <div><Label className="label-tiny">File URL (upload eksternal untuk MVP)</Label><Input value={form.file_url||""} onChange={e=>setForm({...form,file_url:e.target.value})} placeholder="https://..." data-testid="vls-url"/></div>
+              <div><Label className="label-tiny">Upload File (PDF / gambar / doc, maks 10MB)</Label>
+                <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx" onChange={async (e)=>{
+                  const f = e.target.files?.[0]; if(!f) return;
+                  try {
+                    toast.info("Mengunggah…");
+                    const res = await uploadFile(f);
+                    setForm(prev => ({...prev, file_url: res.url, file_name: res.filename}));
+                    toast.success("File terupload");
+                  } catch(err) { toast.error(err.message || "Upload gagal. Pastikan bucket 'ls-documents' sudah dibuat di Supabase dan policy INSERT untuk anon aktif."); }
+                }} data-testid="vls-file" className="mt-1 block w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:bg-slate-900 file:text-white file:font-semibold file:cursor-pointer"/>
+                {form.file_url && <div className="mt-1 text-[11px] text-emerald-600 break-all"><a href={form.file_url} target="_blank" rel="noreferrer" className="underline">{form.file_name || form.file_url}</a></div>}
+              </div>
+              <div><Label className="label-tiny">Atau URL Manual (opsional)</Label><Input value={form.file_url||""} onChange={e=>setForm({...form,file_url:e.target.value})} placeholder="https://..." data-testid="vls-url"/></div>
               <div><Label className="label-tiny">Catatan</Label><Textarea value={form.notes||""} onChange={e=>setForm({...form,notes:e.target.value})} data-testid="vls-notes"/></div>
             </div>
             <DialogFooter><Button onClick={submit} data-testid="vls-save">Submit</Button></DialogFooter>
@@ -284,7 +312,7 @@ export function VendorLS() {
         <table className="data-table">
           <thead><tr><th>Jenis</th><th>Ref No</th><th>PO</th><th>HS Codes</th><th>Status</th><th>Tanggal</th></tr></thead>
           <tbody>
-            {rows.length===0 && <tr><td colSpan={6} className="text-center py-6 text-slate-400">Belum ada dokumen</td></tr>}
+            {rows.length===0 && <tr><td colSpan={7} className="text-center py-6 text-slate-400">Belum ada dokumen</td></tr>}
             {rows.map(d=>(
               <tr key={d.id} data-testid={`vls-row-${d.id}`}>
                 <td className="font-semibold">{d.doc_type}</td>
@@ -292,6 +320,7 @@ export function VendorLS() {
                 <td className="font-mono text-xs">{d.po_id||"-"}</td>
                 <td className="text-xs">{d.hs_codes?.join(", ")}</td>
                 <td className="text-xs uppercase font-semibold">{d.status}</td>
+                <td className="text-xs">{d.file_url ? <a href={d.file_url} target="_blank" rel="noreferrer" className="text-blue-600 underline">Lihat</a> : "-"}</td>
                 <td className="text-xs">{new Date(d.created_at).toLocaleDateString("id-ID")}</td>
               </tr>
             ))}

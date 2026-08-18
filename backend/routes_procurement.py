@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from auth_utils import get_current_active_user
 from db_models import get_db, new_id, now_iso, clean, gen_number
+from notifications import notify_pending_approval
 
 router = APIRouter(prefix="/api")
 
@@ -133,33 +134,42 @@ async def reject_budget(bid: str, note: Optional[str] = None, user=Depends(get_c
     return await _reject_generic("budgets", bid, user, note)
 
 
-async def _budget_available(db, department_id: str, product_id: Optional[str], amount: float) -> tuple[bool, float, float]:
-    """Return (ok, total_budget, used)."""
-    q: dict = {"department_id": department_id, "status": "approved"}
-    if product_id:
-        q_prod = {**q, "product_id": product_id}
-        b = await db.budgets.find_one(q_prod, {"_id": 0})
-        if b:
-            avail = b["amount"] - b.get("used_amount", 0.0)
-            return (amount <= avail, b["amount"], b.get("used_amount", 0.0))
-    # dept-level budget with no product
-    b = await db.budgets.find_one({**q, "product_id": None}, {"_id": 0})
-    if not b:
-        return (False, 0.0, 0.0)
-    avail = b["amount"] - b.get("used_amount", 0.0)
-    return (amount <= avail, b["amount"], b.get("used_amount", 0.0))
+async def _budget_plan(db, department_id: str, items: list[dict]) -> tuple[bool, str, dict]:
+    """Per-item budget check with per-product override.
+
+    Returns (ok, error_msg, budget_map) where budget_map is {budget_id: amount_to_consume}.
+    Logic: for each item, prefer product-specific approved budget in same dept; else fall back
+    to dept-level (product_id=None). Aggregate consumption per budget_id and verify
+    remaining (amount - used_amount) >= aggregated consumption.
+    """
+    q_base = {"department_id": department_id, "status": "approved"}
+    budget_map: dict[str, float] = {}
+    per_budget_note: dict[str, str] = {}
+    for it in items:
+        pid = it.get("product_id")
+        subtotal = float(it.get("subtotal") or (float(it.get("qty") or 0) * float(it.get("price") or 0)))
+        chosen = None
+        if pid:
+            chosen = await db.budgets.find_one({**q_base, "product_id": pid}, {"_id": 0})
+        if not chosen:
+            chosen = await db.budgets.find_one({**q_base, "product_id": None}, {"_id": 0})
+        if not chosen:
+            return (False, f"Tidak ada budget approved untuk department ini (item {it.get('product_name') or pid}).", {})
+        budget_map[chosen["id"]] = budget_map.get(chosen["id"], 0.0) + subtotal
+        per_budget_note[chosen["id"]] = f"{chosen.get('product_id') or 'DEPT'} periode {chosen.get('period')}"
+    # verify availability
+    for bid, need in budget_map.items():
+        b = await db.budgets.find_one({"id": bid}, {"_id": 0})
+        avail = float(b["amount"]) - float(b.get("used_amount") or 0)
+        if need > avail:
+            label = per_budget_note.get(bid, bid)
+            return (False, f"Melanggar budget ({label}): butuh Rp {need:,.0f}, tersedia Rp {avail:,.0f}", {})
+    return (True, "", budget_map)
 
 
-async def _budget_consume(db, department_id: str, product_id: Optional[str], amount: float):
-    q: dict = {"department_id": department_id, "status": "approved"}
-    if product_id:
-        b = await db.budgets.find_one({**q, "product_id": product_id})
-        if b:
-            await db.budgets.update_one({"id": b["id"]}, {"$inc": {"used_amount": amount}})
-            return
-    b = await db.budgets.find_one({**q, "product_id": None})
-    if b:
-        await db.budgets.update_one({"id": b["id"]}, {"$inc": {"used_amount": amount}})
+async def _budget_consume_map(db, budget_map: dict[str, float]):
+    for bid, amt in (budget_map or {}).items():
+        await db.budgets.update_one({"id": bid}, {"$inc": {"used_amount": float(amt)}})
 
 
 # ---------- Generic approve/reject ----------
@@ -192,13 +202,19 @@ async def _approve_generic(collection: str, doc_id: str, user: dict, note: Optio
             {"id": doc_id},
             {"$set": {"approvals": approvals, "current_level": next_level}},
         )
+        # notify next approvers
+        updated = await db[collection].find_one({"id": doc_id}, {"_id": 0})
+        try:
+            await notify_pending_approval(collection[:-1].upper(), updated)
+        except Exception:
+            pass
     else:
         # Fully approved
         update: dict = {"approvals": approvals, "status": "approved", "current_level": 0}
         await db[collection].update_one({"id": doc_id}, {"$set": update})
-        # Consume budget when PR approved
+        # Consume budget when PR approved (per-item map)
         if collection == "prs":
-            await _budget_consume(db, doc["department_id"], None, doc["total"])
+            await _budget_consume_map(db, doc.get("budget_map") or {})
     return await db[collection].find_one({"id": doc_id}, {"_id": 0})
 
 
@@ -267,10 +283,10 @@ async def create_pr(payload: PRIn, user=Depends(get_current_active_user)):
     items = [{**i.model_dump(), "subtotal": i.qty * i.price} for i in payload.items]
     total = sum(i["subtotal"] for i in items)
 
-    # Budget check
-    ok, budget_total, used = await _budget_available(db, payload.department_id, None, total)
+    # Per-item budget check
+    ok, err, budget_map = await _budget_plan(db, payload.department_id, items)
     if not ok:
-        raise HTTPException(400, f"Melanggar budget: total permintaan {total} melebihi sisa budget (budget={budget_total}, terpakai={used})")
+        raise HTTPException(400, err)
 
     wf = await _pick_workflow(db, "PR", payload.department_id)
     steps = _levels_for_amount(wf, total)
@@ -289,14 +305,20 @@ async def create_pr(payload: PRIn, user=Depends(get_current_active_user)):
         "status": "pending_approval" if steps else "approved",
         "approvals": steps,
         "current_level": 1 if steps else 0,
+        "budget_map": budget_map,
         "po_id": None,
         "tender_id": None,
         "warehouse_status": "not_received",
         "created_at": now_iso(),
     }
     if not steps:
-        await _budget_consume(db, payload.department_id, None, total)
+        await _budget_consume_map(db, budget_map)
     await db.prs.insert_one(doc)
+    if steps:
+        try:
+            await notify_pending_approval("Purchase Request", doc)
+        except Exception:
+            pass
     return clean(doc)
 
 

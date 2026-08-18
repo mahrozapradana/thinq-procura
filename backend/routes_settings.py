@@ -1,4 +1,4 @@
-"""Company settings + Odoo integration (mocked)."""
+"""Company settings + Odoo XML-RPC integration + SMTP notification settings."""
 from __future__ import annotations
 
 from typing import Optional
@@ -8,11 +8,13 @@ from pydantic import BaseModel
 
 from auth_utils import get_current_active_user
 from db_models import get_db, new_id, now_iso
+from odoo_client import sync_products_to_odoo, sync_vendors_to_odoo, sync_pos_to_odoo, test_odoo
 
 router = APIRouter(prefix="/api")
 
 
 COMPANY_ID = "singleton-company"
+NOTIF_ID = "singleton-notif"
 
 
 class CompanySettingsIn(BaseModel):
@@ -67,6 +69,8 @@ class OdooSettingsIn(BaseModel):
 
 @router.get("/settings/odoo")
 async def get_odoo(user=Depends(get_current_active_user)):
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin only")
     db = get_db()
     doc = await db.odoo_settings.find_one({"id": COMPANY_ID}, {"_id": 0})
     if not doc:
@@ -79,6 +83,8 @@ async def get_odoo(user=Depends(get_current_active_user)):
             "enabled": False,
             "last_sync": None,
         }
+    if doc.get("odoo_api_key"):
+        doc["odoo_api_key"] = "***"
     return doc
 
 
@@ -87,34 +93,115 @@ async def update_odoo(payload: OdooSettingsIn, user=Depends(get_current_active_u
     if user["role"] != "admin":
         raise HTTPException(403, "Admin only")
     db = get_db()
+    data = payload.model_dump()
+    # Don't overwrite stored api_key when frontend passes the masked value
+    if data.get("odoo_api_key") in ("***", ""):
+        existing = await db.odoo_settings.find_one({"id": COMPANY_ID}) or {}
+        data["odoo_api_key"] = existing.get("odoo_api_key", "")
     await db.odoo_settings.update_one(
         {"id": COMPANY_ID},
-        {"$set": {**payload.model_dump(), "updated_at": now_iso()}},
+        {"$set": {**data, "updated_at": now_iso()}},
         upsert=True,
     )
-    return await db.odoo_settings.find_one({"id": COMPANY_ID}, {"_id": 0})
+    doc = await db.odoo_settings.find_one({"id": COMPANY_ID}, {"_id": 0})
+    if doc and doc.get("odoo_api_key"):
+        doc["odoo_api_key"] = "***"
+    return doc
 
 
 @router.post("/odoo/sync/products")
 async def sync_products(user=Depends(get_current_active_user)):
-    """MOCKED: pretend to push products to Odoo."""
+    if user["role"] not in ("admin", "procurement"):
+        raise HTTPException(403, "Not allowed")
+    result = await sync_products_to_odoo()
     db = get_db()
-    n = await db.products.count_documents({})
     await db.odoo_settings.update_one({"id": COMPANY_ID}, {"$set": {"last_sync": now_iso()}}, upsert=True)
-    return {"ok": True, "mocked": True, "synced_count": n, "message": f"Simulasi push {n} products ke Odoo"}
+    return result
 
 
 @router.post("/odoo/sync/vendors")
 async def sync_vendors(user=Depends(get_current_active_user)):
+    if user["role"] not in ("admin", "procurement"):
+        raise HTTPException(403, "Not allowed")
+    result = await sync_vendors_to_odoo()
     db = get_db()
-    n = await db.vendors.count_documents({"status": "approved"})
     await db.odoo_settings.update_one({"id": COMPANY_ID}, {"$set": {"last_sync": now_iso()}}, upsert=True)
-    return {"ok": True, "mocked": True, "synced_count": n, "message": f"Simulasi push {n} vendors ke Odoo"}
+    return result
 
 
 @router.post("/odoo/sync/pos")
 async def sync_pos(user=Depends(get_current_active_user)):
+    if user["role"] not in ("admin", "procurement"):
+        raise HTTPException(403, "Not allowed")
+    result = await sync_pos_to_odoo()
     db = get_db()
-    n = await db.pos.count_documents({"status": {"$in": ["approved", "sent", "completed"]}})
     await db.odoo_settings.update_one({"id": COMPANY_ID}, {"$set": {"last_sync": now_iso()}}, upsert=True)
-    return {"ok": True, "mocked": True, "synced_count": n, "message": f"Simulasi push {n} POs ke Odoo"}
+    return result
+
+
+@router.post("/odoo/test")
+async def odoo_test(user=Depends(get_current_active_user)):
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin only")
+    return await test_odoo()
+
+
+# ---------- SMTP / Notification settings ----------
+class SmtpSettingsIn(BaseModel):
+    smtp_host: Optional[str] = None
+    smtp_port: int = 587
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None
+    from_email: Optional[str] = None
+    use_tls: bool = True
+    enabled: bool = False
+
+
+@router.get("/settings/notifications")
+async def get_notif(user=Depends(get_current_active_user)):
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin only")
+    db = get_db()
+    doc = await db.notification_settings.find_one({"id": NOTIF_ID}, {"_id": 0})
+    if not doc:
+        doc = {"id": NOTIF_ID, "smtp_host": "", "smtp_port": 587, "smtp_username": "", "smtp_password": "", "from_email": "", "use_tls": True, "enabled": False}
+    if doc.get("smtp_password"):
+        doc["smtp_password"] = "***"
+    return doc
+
+
+@router.put("/settings/notifications")
+async def update_notif(payload: SmtpSettingsIn, user=Depends(get_current_active_user)):
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin only")
+    db = get_db()
+    data = payload.model_dump()
+    if data.get("smtp_password") in ("***", ""):
+        existing = await db.notification_settings.find_one({"id": NOTIF_ID}) or {}
+        data["smtp_password"] = existing.get("smtp_password", "")
+    await db.notification_settings.update_one(
+        {"id": NOTIF_ID},
+        {"$set": {**data, "updated_at": now_iso()}},
+        upsert=True,
+    )
+    doc = await db.notification_settings.find_one({"id": NOTIF_ID}, {"_id": 0})
+    if doc and doc.get("smtp_password"):
+        doc["smtp_password"] = "***"
+    return doc
+
+
+class TestEmailIn(BaseModel):
+    to: str
+
+
+@router.post("/settings/notifications/test")
+async def test_email(payload: TestEmailIn, user=Depends(get_current_active_user)):
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin only")
+    from notifications import send_email
+    ok = await send_email(
+        [payload.to],
+        "[Procura] Test Email",
+        "<p>Test dari Procura E-Procurement. Jika Anda menerima ini, konfigurasi SMTP sudah benar.</p>",
+    )
+    return {"ok": ok, "message": "Email terkirim" if ok else "Gagal / SMTP belum enabled. Cek log backend."}

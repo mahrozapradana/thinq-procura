@@ -6,7 +6,16 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Check, X } from "lucide-react";
+import { Plus, Check, X, Download } from "lucide-react";
+
+const API_URL = process.env.REACT_APP_BACKEND_URL;
+async function downloadReport(path, filename) {
+  const t = localStorage.getItem("access_token");
+  const r = await fetch(`${API_URL}/api${path}`, { credentials: "include", headers: t ? { Authorization: `Bearer ${t}` } : {} });
+  const b = await r.blob();
+  const url = URL.createObjectURL(b);
+  const a = document.createElement("a"); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+}
 
 const STATUS_STYLE = {
   approved: "bg-emerald-100 text-emerald-700",
@@ -46,8 +55,11 @@ export default function Budgets() {
           <h1 className="font-heading text-3xl font-bold tracking-tight">Budgets</h1>
           <p className="text-sm text-slate-600 mt-1">Set anggaran per department atau per barang. PR yang melebihi budget akan ditolak otomatis.</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild><Button data-testid="budget-add-btn"><Plus size={14}/> Tambah Budget</Button></DialogTrigger>
+        <div className="flex gap-2 items-end">
+          <Button variant="outline" size="sm" onClick={()=>downloadReport("/reports/budgets.csv","budget_utilization.csv")} data-testid="budget-export-csv"><Download size={14}/> CSV</Button>
+          <Button variant="outline" size="sm" onClick={()=>downloadReport("/reports/budgets.pdf","budget_utilization.pdf")} data-testid="budget-export-pdf"><Download size={14}/> PDF</Button>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild><Button data-testid="budget-add-btn"><Plus size={14}/> Tambah Budget</Button></DialogTrigger>
           <DialogContent>
             <DialogHeader><DialogTitle>Tambah Budget</DialogTitle></DialogHeader>
             <div className="space-y-3">
@@ -69,6 +81,7 @@ export default function Budgets() {
             <DialogFooter><Button onClick={submit} data-testid="budget-save">Simpan</Button></DialogFooter>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
       <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
         <table className="data-table">
