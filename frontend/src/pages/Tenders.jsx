@@ -26,7 +26,7 @@ export default function Tenders() {
   const [form, setForm] = useState({ items:[], invited_vendor_ids:[], is_bonded:false });
 
   const load = () => api.get("/tenders").then(r=>setRows(r.data));
-  useEffect(()=>{ load(); api.get("/products").then(r=>setProducts(r.data)); api.get("/vendors?status=approved").then(r=>setVendors(r.data));},[]);
+  useEffect(()=>{ load(); api.get("/products").then(r=>setProducts(r.data)); api.get("/vendors?status=approved&exclude_blacklisted=true").then(r=>setVendors(r.data));},[]);
 
   const addItem = () => setForm({...form, items:[...form.items,{product_id:"",qty:1,specs:""}]});
   const setItem = (i,k,v) => setForm({...form, items: form.items.map((it,idx)=>idx===i?{...it,[k]:v}:it)});

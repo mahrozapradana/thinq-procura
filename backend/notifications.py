@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -78,15 +79,35 @@ async def notify_pending_approval(doc_type: str, doc: dict):
         return
     number = doc.get("pr_number") or doc.get("po_number") or doc.get("id")
     total = doc.get("total") or doc.get("amount")
+    # Mobile approve link (HMAC signed)
+    try:
+        from routes_extended import make_approve_token
+        collection = "prs" if doc.get("pr_number") else ("pos" if doc.get("po_number") else "budgets")
+        base_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
+        approve_token = make_approve_token(collection, doc["id"], cur, "approve")
+        reject_token = make_approve_token(collection, doc["id"], cur, "reject")
+        approve_link = f"{base_url}/api/mobile-approve?token={approve_token}"
+        reject_link = f"{base_url}/api/mobile-approve?token={reject_token}"
+        buttons = f"""
+        <div style="margin:16px 0">
+          <a href="{approve_link}" style="display:inline-block;padding:12px 22px;background:#059669;color:white;text-decoration:none;border-radius:4px;font-weight:600;margin-right:8px">✓ Approve</a>
+          <a href="{reject_link}" style="display:inline-block;padding:12px 22px;background:#DC2626;color:white;text-decoration:none;border-radius:4px;font-weight:600">✗ Reject</a>
+        </div>
+        <p style="color:#94A3B8;font-size:11px">Tautan di atas dapat digunakan langsung dari HP tanpa login.</p>
+        """
+    except Exception:
+        buttons = ""
     subject = f"[Procura] Approval Level {cur} diperlukan – {doc_type} {number}"
     body = f"""
-    <h2>Approval diperlukan</h2>
-    <p>Anda ditugaskan sebagai approver level <b>{cur}</b> untuk {doc_type}.</p>
-    <ul>
-      <li>Nomor: <b>{number}</b></li>
-      <li>Total: <b>Rp {total:,.0f}</b></li>
-      <li>Level Role: <b>{step.get('role')}</b></li>
-    </ul>
-    <p>Silakan login ke portal untuk approve/reject.</p>
+    <div style="font-family:system-ui,sans-serif;padding:20px;max-width:540px">
+      <h2 style="color:#0F172A;margin:0 0 8px">Approval diperlukan</h2>
+      <p>Anda ditugaskan sebagai approver level <b>{cur}</b> untuk {doc_type}.</p>
+      <ul>
+        <li>Nomor: <b>{number}</b></li>
+        <li>Total: <b>Rp {total:,.0f}</b></li>
+        <li>Level Role: <b>{step.get('role')}</b></li>
+      </ul>
+      {buttons}
+    </div>
     """.replace(",", ".")
     await send_email(emails, subject, body)

@@ -30,19 +30,24 @@ const STATUS_STYLE = {
 
 export default function PurchaseRequests() {
   const [rows, setRows] = useState([]);
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [total, setTotal] = useState(0);
   const [depts, setDepts] = useState([]);
   const [products, setProducts] = useState([]);
   const [deptBudgets, setDeptBudgets] = useState([]);
+  const [duplicates, setDuplicates] = useState([]);
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState(null);
   const [form, setForm] = useState({ items: [], procurement_type:"DIRECT", is_bonded: false, attachments: [] });
 
-  const load = () => api.get("/prs").then(r=>setRows(r.data));
+  const load = () => api.get(`/prs?page=${page}&page_size=20&q=${encodeURIComponent(q)}`).then(r=>{ setRows(r.data.items); setTotal(r.data.total); setPages(r.data.pages); });
   useEffect(() => {
     load();
     api.get("/departments").then(r=>setDepts(r.data));
     api.get("/products").then(r=>setProducts(r.data));
-  }, []);
+  }, [page, q]);
   useEffect(() => {
     if (form.department_id) {
       api.get(`/budgets/check/${form.department_id}`).then(r => setDeptBudgets(r.data));
@@ -50,6 +55,15 @@ export default function PurchaseRequests() {
       setDeptBudgets([]);
     }
   }, [form.department_id]);
+
+  // Duplicate detection
+  useEffect(() => {
+    if (form.department_id && form.items.filter(i=>i.product_id).length > 0) {
+      api.post("/prs/check-duplicate", { department_id: form.department_id, items: form.items }).then(r=>setDuplicates(r.data.duplicates || [])).catch(()=>setDuplicates([]));
+    } else {
+      setDuplicates([]);
+    }
+  }, [form.department_id, JSON.stringify(form.items.map(i=>i.product_id))]);
 
   const budgetPreview = useMemo(() => {
     const alloc = {};
@@ -174,6 +188,18 @@ export default function PurchaseRequests() {
                 </div>
               )}
 
+              {/* Duplicate warning */}
+              {duplicates.length > 0 && (
+                <div className="border border-amber-300 bg-amber-50 rounded p-3" data-testid="pr-duplicate-warn">
+                  <div className="text-xs font-semibold text-amber-800">⚠ PR mirip ditemukan dalam 30 hari terakhir:</div>
+                  <ul className="mt-1 text-xs text-amber-800 space-y-0.5">
+                    {duplicates.slice(0,5).map(d => (
+                      <li key={d.pr_id}>• <span className="font-mono">{d.pr_number}</span> — {d.overlap_products.join(", ")} <span className="text-slate-500">({d.status}, {new Date(d.created_at).toLocaleDateString("id-ID")})</span></li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               <div><Label className="label-tiny">Catatan</Label><Textarea value={form.notes||""} onChange={e=>setForm({...form,notes:e.target.value})} data-testid="pr-notes"/></div>
 
               <div>
@@ -212,6 +238,13 @@ export default function PurchaseRequests() {
           </DialogContent>
         </Dialog>
         </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Input placeholder="Cari nomor PR, requester, notes…" value={q} onChange={e=>{setPage(1); setQ(e.target.value);}} className="max-w-md" data-testid="pr-search"/>
+        <div className="text-xs text-slate-500 ml-auto">{total} PR · Hal {page}/{pages || 1}</div>
+        <Button variant="outline" size="sm" disabled={page<=1} onClick={()=>setPage(p=>p-1)} data-testid="pr-prev">‹</Button>
+        <Button variant="outline" size="sm" disabled={page>=pages} onClick={()=>setPage(p=>p+1)} data-testid="pr-next">›</Button>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-md overflow-hidden">

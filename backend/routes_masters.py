@@ -164,11 +164,20 @@ async def delete_product(pid: str, user=Depends(get_current_active_user)):
 
 # ---------- Vendors mgmt (procurement side) ----------
 @router.get("/vendors")
-async def list_vendors(status: Optional[str] = None, user=Depends(get_current_active_user)):
+async def list_vendors(status: Optional[str] = None, exclude_blacklisted: bool = False, user=Depends(get_current_active_user)):
     db = get_db()
     q: dict = {}
     if status:
         q["status"] = status
+    if exclude_blacklisted:
+        q["$and"] = [
+            {"blacklisted": {"$ne": True}},
+            {"$or": [
+                {"avg_rating": {"$exists": False}},
+                {"avg_rating": {"$gte": 2}},
+                {"ratings_count": {"$lt": 2}},
+            ]},
+        ]
     return await db.vendors.find(q, {"_id": 0}).to_list(1000)
 
 

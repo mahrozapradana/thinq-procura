@@ -105,3 +105,24 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - SMTP send email OK
 - Budget forecast endpoint OK
 - SMTP password masked as '*'
+
+## Iteration 5 – 2026-02-14
+### Added / Enhanced
+- **PR list**: search box + server-side pagination (?q&page&page_size), header shows total & current page, prev/next buttons.
+- **PO list**: same search + pagination.
+- **PO create**: added Warehouse, Payment Terms, Projects (comma-separated), Vendor Forecast, Tax % (PPN), DPP Nilai Lain. Backend computes untaxed_amount, amount_tax, amount_total on create.
+- **PO detail sheet**: Odoo-style layout — Vendor / Vendor Code / Warehouse / Payment Terms / Order Date / Receipt Date / Vendor Forecast / Projects, per-item row with description + Projects + Taxes column, footer totals (Untaxed / DPP / Tax / Total).
+- **Vendor blacklist**: manual toggle + auto-detect avg_rating<2 (≥2 ratings). Tenders & PO create now exclude blacklisted vendors via `?exclude_blacklisted=true`. VendorsMgmt table shows blacklist badge (MANUAL / AUTO<2★) + red row.
+- **Vendor list UI**: horizontal-scroll + client-side pagination (15/page) + search.
+- **PR duplicate detection**: POST /api/prs/check-duplicate; PR create dialog auto-warns if similar PR (same dept + overlapping products) exists ≤30d.
+- **Approval Delegation**: `/api/users/{id}/delegation` (endpoint ready; UI in Settings deferred).
+- **Mobile Approval**: HMAC-signed GET link `/api/mobile-approve?token=…` (7-day validity). Email approval notif now includes big green Approve / red Reject buttons that call the endpoint — no login required from mobile.
+- **Vendor Portal Profile revamp**: 4 tabs (Info / Address / Document / PIC) mirroring reference screenshots. Info: Username/Phone/Email/NPWP/Website/Notification handling radio. Address: multiple addresses w/ label+city+postal. Document: upload SIUP / NPWP / Akta + Awarding table + Certification table (all via Supabase). PIC: list of contact persons.
+
+### Endpoints new
+- GET /api/prs?q&page&page_size · GET /api/pos?q&page&page_size&status&po_type
+- POST /api/prs/check-duplicate
+- POST /api/vendors/{id}/blacklist
+- PUT /api/vendor-portal/profile-extended · PUT /api/vendors/{id}/profile-extended
+- PUT /api/users/{id}/delegation · GET /api/users/me/delegation
+- GET /api/mobile-approve?token=…

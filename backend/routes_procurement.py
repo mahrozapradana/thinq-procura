@@ -282,12 +282,33 @@ class PRIn(BaseModel):
 
 
 @router.get("/prs")
-async def list_prs(user=Depends(get_current_active_user)):
+async def list_prs(
+    q: Optional[str] = None,
+    status: Optional[str] = None,
+    department_id: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 20,
+    user=Depends(get_current_active_user),
+):
     db = get_db()
-    q: dict = {}
+    query: dict = {}
     if user["role"] == "requester":
-        q["requester_id"] = user["id"]
-    return await db.prs.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
+        query["requester_id"] = user["id"]
+    if status:
+        query["status"] = status
+    if department_id:
+        query["department_id"] = department_id
+    if q:
+        query["$or"] = [
+            {"pr_number": {"$regex": q, "$options": "i"}},
+            {"requester_name": {"$regex": q, "$options": "i"}},
+            {"notes": {"$regex": q, "$options": "i"}},
+        ]
+    total = await db.prs.count_documents(query)
+    page = max(page, 1); page_size = min(max(page_size, 1), 100)
+    skip = (page - 1) * page_size
+    items = await db.prs.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(page_size).to_list(page_size)
+    return {"items": items, "total": total, "page": page, "page_size": page_size, "pages": (total + page_size - 1) // page_size}
 
 
 @router.get("/prs/{pid}")
@@ -369,15 +390,72 @@ class POCreateIn(BaseModel):
     po_type: str = "LOCAL"  # LOCAL | BONDED
     delivery_date: Optional[str] = None
     notes: Optional[str] = None
+    warehouse: Optional[str] = None
+    payment_terms: Optional[str] = None
+    projects: List[str] = Field(default_factory=list)
+    vendor_forecast: Optional[str] = None
+    tax_percent: float = 11.0
+    dpp_nilai_lain: float = 0.0
 
 
 @router.get("/pos")
-async def list_pos(user=Depends(get_current_active_user)):
+async def list_pos(
+    q: Optional[str] = None,
+    status: Optional[str] = None,
+    po_type: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 20,
+    user=Depends(get_current_active_user),
+):
     db = get_db()
-    q: dict = {}
+    query: dict = {}
     if user["role"] == "vendor":
-        q["vendor_id"] = user.get("vendor_id")
-    return await db.pos.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
+        query["vendor_id"] = user.get("vendor_id")
+    if status:
+        query["status"] = status
+    if po_type:
+        query["po_type"] = po_type
+    if q:
+        query["$or"] = [
+            {"po_number": {"$regex": q, "$options": "i"}},
+            {"notes": {"$regex": q, "$options": "i"}},
+        ]
+    total = await db.pos.count_documents(query)
+    page = max(page, 1); page_size = min(max(page_size, 1), 100)
+    skip = (page - 1) * page_size
+    items = await db.pos.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(page_size).to_list(page_size)
+    return {"items": items, "total": total, "page": page, "page_size": page_size, "pages": (total + page_size - 1) // page_size}
+
+
+@router.post("/prs/check-duplicate")
+async def pr_check_duplicate(payload: dict, user=Depends(get_current_active_user)):
+    """Detect similar PR in last 30 days by department + overlapping products."""
+    from datetime import datetime, timedelta, timezone
+    db = get_db()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    dept = payload.get("department_id")
+    product_ids = [it.get("product_id") for it in (payload.get("items") or []) if it.get("product_id")]
+    if not dept or not product_ids:
+        return {"duplicates": []}
+    prs = await db.prs.find({
+        "department_id": dept,
+        "created_at": {"$gte": cutoff},
+        "status": {"$ne": "rejected"},
+    }, {"_id": 0}).to_list(500)
+    duplicates = []
+    for pr in prs:
+        overlap = [it for it in pr.get("items", []) if it.get("product_id") in product_ids]
+        if overlap:
+            duplicates.append({
+                "pr_id": pr["id"],
+                "pr_number": pr["pr_number"],
+                "created_at": pr["created_at"],
+                "status": pr["status"],
+                "requester_name": pr.get("requester_name"),
+                "overlap_products": [it.get("product_name") for it in overlap],
+                "total": pr["total"],
+            })
+    return {"duplicates": duplicates}
 
 
 @router.get("/pos/{pid}")
@@ -404,21 +482,39 @@ async def create_po(payload: POCreateIn, user=Depends(get_current_active_user)):
             merged_items.append({**it, "pr_id": pr["id"], "pr_number": pr["pr_number"]})
             total += it["subtotal"]
 
+    tax_percent = float(payload.tax_percent or 0)
+    amount_tax = total * tax_percent / 100.0
+    amount_total = total + amount_tax + float(payload.dpp_nilai_lain or 0)
+
     wf = await _pick_workflow(db, "PO", None)
     steps = _levels_for_amount(wf, total)
+    vendor_doc = await db.vendors.find_one({"id": payload.vendor_id}, {"_id": 0}) or {}
     doc = {
         "id": new_id(),
         "po_number": gen_number("PO"),
         "po_type": payload.po_type,
         "vendor_id": payload.vendor_id,
+        "vendor_code": vendor_doc.get("code") or payload.vendor_id[:8],
+        "vendor_name": vendor_doc.get("company_name"),
         "pr_ids": payload.pr_ids,
         "items": merged_items,
         "total": total,
+        "untaxed_amount": total,
+        "tax_percent": tax_percent,
+        "amount_tax": amount_tax,
+        "dpp_nilai_lain": float(payload.dpp_nilai_lain or 0),
+        "amount_total": amount_total,
         "currency": "IDR",
         "status": "pending_approval" if steps else "approved",
         "approvals": steps,
         "current_level": 1 if steps else 0,
         "delivery_date": payload.delivery_date,
+        "warehouse": payload.warehouse,
+        "payment_terms": payload.payment_terms,
+        "projects": payload.projects,
+        "vendor_forecast": payload.vendor_forecast,
+        "order_date": now_iso(),
+        "receipt_date": payload.delivery_date,
         "shipping_status": "pending",
         "invoice_status": "pending",
         "notes": payload.notes,

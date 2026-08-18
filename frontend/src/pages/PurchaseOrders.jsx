@@ -31,21 +31,25 @@ const STATUS_STYLE = {
 
 export default function PurchaseOrders() {
   const [pos, setPos] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [q, setQ] = useState("");
   const [prs, setPrs] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [detail, setDetail] = useState(null);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [selected, setSelected] = useState({});
-  const [form, setForm] = useState({ po_type: "LOCAL" });
+  const [form, setForm] = useState({ po_type: "LOCAL", tax_percent: 11, projects: [] });
   const [rating, setRating] = useState(0);
   const [ratingNote, setRatingNote] = useState("");
 
   const load = () => {
-    api.get("/pos").then(r=>setPos(r.data));
-    api.get("/prs").then(r=>setPrs(r.data.filter(p=>p.status==="approved")));
-    api.get("/vendors?status=approved").then(r=>setVendors(r.data));
+    api.get(`/pos?page=${page}&page_size=20&q=${encodeURIComponent(q)}`).then(r=>{ setPos(r.data.items); setTotal(r.data.total); setPages(r.data.pages); });
+    api.get("/prs?page_size=100&status=approved").then(r=>setPrs(r.data.items || []));
+    api.get("/vendors?status=approved&exclude_blacklisted=true").then(r=>setVendors(r.data));
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [page, q]);
 
   const selectedIds = Object.keys(selected).filter(k=>selected[k]);
 
@@ -82,6 +86,13 @@ export default function PurchaseOrders() {
           <Button variant="outline" size="sm" onClick={()=>downloadReport("/reports/pos.pdf","purchase_orders.pdf")} data-testid="po-export-pdf"><Download size={14}/> PDF</Button>
           <Button onClick={()=>setMergeOpen(true)} data-testid="po-merge-btn"><Merge size={14}/> Merge PR → PO</Button>
         </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Input placeholder="Cari nomor PO…" value={q} onChange={e=>{setPage(1); setQ(e.target.value);}} className="max-w-md" data-testid="po-search"/>
+        <div className="text-xs text-slate-500 ml-auto">{total} PO · Hal {page}/{pages || 1}</div>
+        <Button variant="outline" size="sm" disabled={page<=1} onClick={()=>setPage(p=>p-1)} data-testid="po-prev">‹</Button>
+        <Button variant="outline" size="sm" disabled={page>=pages} onClick={()=>setPage(p=>p+1)} data-testid="po-next">›</Button>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
@@ -160,19 +171,31 @@ export default function PurchaseOrders() {
         <SheetContent className="w-full sm:max-w-2xl overflow-y-auto bg-white">
           {detail && (
             <>
-              <SheetHeader><SheetTitle>{detail.po_number}</SheetTitle></SheetHeader>
+              <SheetHeader><SheetTitle className="font-mono">#{detail.po_number}</SheetTitle></SheetHeader>
               <div className="mt-4 space-y-4">
-                <div className="grid grid-cols-3 gap-3 text-sm">
-                  <div><div className="label-tiny">Type</div><div>{detail.po_type}</div></div>
-                  <div><div className="label-tiny">Vendor</div><div>{vendors.find(v=>v.id===detail.vendor_id)?.company_name}</div></div>
-                  <div><div className="label-tiny">Total</div><div className="font-mono font-bold">{fmtIDR(detail.total)}</div></div>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                  <div><div className="label-tiny">Vendor</div><div className="font-semibold">{detail.vendor_name || vendors.find(v=>v.id===detail.vendor_id)?.company_name}</div></div>
+                  <div><div className="label-tiny">Order Date</div><div>{detail.order_date ? new Date(detail.order_date).toLocaleDateString("id-ID") : "-"}</div></div>
+                  <div><div className="label-tiny">Vendor Code</div><div className="font-mono text-xs">{detail.vendor_code || "-"}</div></div>
+                  <div><div className="label-tiny">Receipt Date</div><div>{detail.receipt_date ? new Date(detail.receipt_date).toLocaleDateString("id-ID") : "-"}</div></div>
+                  <div><div className="label-tiny">Warehouse</div><div>{detail.warehouse || "-"}</div></div>
+                  <div><div className="label-tiny">Vendor Forecast</div><div>{detail.vendor_forecast || "-"}</div></div>
+                  <div><div className="label-tiny">Payment Terms</div><div>{detail.payment_terms || "-"}</div></div>
+                  <div><div className="label-tiny">Projects</div><div className="flex flex-wrap gap-1">{(detail.projects || []).map(p=><span key={p} className="text-[10px] px-1.5 py-0.5 bg-slate-100 rounded font-semibold uppercase">{p}</span>) || "-"}</div></div>
                 </div>
                 <div>
-                  <div className="label-tiny mb-2">Items</div>
                   <table className="data-table">
-                    <thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Subtotal</th><th>PR</th></tr></thead>
-                    <tbody>{detail.items?.map((it,i)=>(<tr key={i}><td>{it.product_name}</td><td>{it.qty}</td><td className="font-mono">{fmtIDR(it.price)}</td><td className="font-mono">{fmtIDR(it.subtotal)}</td><td className="text-xs font-mono">{it.pr_number}</td></tr>))}</tbody>
+                    <thead><tr><th>#</th><th>Product</th><th>Description</th><th>Projects</th><th>Qty</th><th>Unit Price</th><th>Taxes</th><th>Subtotal</th></tr></thead>
+                    <tbody>{detail.items?.map((it,i)=>(<tr key={i}><td>{i+1}</td><td className="font-mono text-xs">[{it.product_id?.slice(0,8)}] {it.product_name}</td><td className="text-xs">{it.product_name}</td><td className="text-xs">{(detail.projects||[]).join(",")}</td><td>{it.qty}</td><td className="font-mono">{fmtIDR(it.price)}</td><td className="text-xs">PPN {detail.tax_percent||11}%</td><td className="font-mono">{fmtIDR(it.subtotal)}</td></tr>))}</tbody>
                   </table>
+                </div>
+                <div className="flex justify-end">
+                  <div className="w-64 text-sm space-y-1">
+                    <div className="flex justify-between"><span className="text-slate-500">Untaxed Amount</span><span className="font-mono">{fmtIDR(detail.untaxed_amount || detail.total)}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">DPP Nilai Lain</span><span className="font-mono">{fmtIDR(detail.dpp_nilai_lain || 0)}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Amount Tax ({detail.tax_percent||0}%)</span><span className="font-mono">{fmtIDR(detail.amount_tax || 0)}</span></div>
+                    <div className="flex justify-between border-t pt-1 mt-1 font-bold"><span>Amount Total</span><span className="font-mono">{fmtIDR(detail.amount_total || detail.total)}</span></div>
+                  </div>
                 </div>
                 <div>
                   <div className="label-tiny mb-2">Approval Timeline</div>

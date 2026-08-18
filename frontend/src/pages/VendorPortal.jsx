@@ -333,26 +333,138 @@ export function VendorLS() {
 
 export function VendorProfile() {
   const [p, setP] = useState(null);
-  useEffect(()=>{ api.get("/vendor-portal/profile").then(r=>setP(r.data)); },[]);
-  const save = async () => { try{ await api.put("/vendor-portal/profile", p); toast.success("Profil disimpan"); }catch(e){toast.error(e.response?.data?.detail);} };
+  const [tab, setTab] = useState("info");
+  useEffect(()=>{ api.get("/vendor-portal/profile").then(r=>setP(r.data||{})); },[]);
+  const save = async () => {
+    try {
+      await api.put("/vendor-portal/profile-extended", p);
+      toast.success("Profil disimpan");
+    } catch(e){ toast.error(e.response?.data?.detail); }
+  };
+  const uploadDoc = async (file, field, key) => {
+    try {
+      toast.info(`Uploading ${file.name}…`);
+      const fd = new FormData(); fd.append("file", file);
+      const t = localStorage.getItem("access_token");
+      const r = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/uploads/attachment`, { method: "POST", credentials: "include", headers: t?{Authorization:`Bearer ${t}`}:{}, body: fd });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || "Upload gagal");
+      if (field === "add_awarding" || field === "add_certification") {
+        const arr = [...(p[key] || []), { name: file.name, file: d.url }];
+        setP({...p, [key]: arr});
+      } else {
+        setP({...p, [field]: d.url});
+      }
+      toast.success("Terupload");
+    } catch(err){ toast.error(err.message); }
+  };
+  const addPIC = () => setP({...p, pics: [...(p.pics||[]), {name:"", role:"", phone:"", email:""}]});
+  const setPIC = (i,k,v) => setP({...p, pics: (p.pics||[]).map((x,idx)=>idx===i?{...x,[k]:v}:x)});
+  const rmPIC = (i) => setP({...p, pics: (p.pics||[]).filter((_,idx)=>idx!==i)});
+  const addAddr = () => setP({...p, addresses: [...(p.addresses||[]), {label:"", address:"", city:"", country:"Indonesia", postal_code:""}]});
+  const setAddr = (i,k,v) => setP({...p, addresses: (p.addresses||[]).map((x,idx)=>idx===i?{...x,[k]:v}:x)});
+  const rmAddr = (i) => setP({...p, addresses: (p.addresses||[]).filter((_,idx)=>idx!==i)});
+
   if(!p) return <div className="text-sm text-slate-500">Memuat...</div>;
+  const TABS = [
+    {k:"info", label:"Info"}, {k:"address", label:"Address"}, {k:"document", label:"Document"}, {k:"pic", label:"PIC"},
+  ];
   return (
     <div className="space-y-4" data-testid="vendor-profile">
-      <h1 className="font-heading text-3xl font-bold tracking-tight">Profil Perusahaan</h1>
-      <div className="bg-white border border-slate-200 rounded p-6 max-w-2xl space-y-3">
-        <div><Label className="label-tiny">Nama Perusahaan</Label><Input value={p.company_name||""} disabled/></div>
-        <div className="grid grid-cols-2 gap-3">
-          <div><Label className="label-tiny">Kontak</Label><Input value={p.name||""} disabled/></div>
-          <div><Label className="label-tiny">Email</Label><Input value={p.email||""} disabled/></div>
-          <div><Label className="label-tiny">Telepon</Label><Input value={p.phone||""} onChange={e=>setP({...p,phone:e.target.value})} data-testid="vp-phone"/></div>
-          <div><Label className="label-tiny">NPWP</Label><Input value={p.npwp||""} onChange={e=>setP({...p,npwp:e.target.value})} data-testid="vp-npwp"/></div>
-          <div><Label className="label-tiny">Bank Account</Label><Input value={p.bank_account||""} onChange={e=>setP({...p,bank_account:e.target.value})} data-testid="vp-bank"/></div>
-          <div><Label className="label-tiny">Importir</Label><Input value={p.is_importer?"Ya":"Tidak"} disabled/></div>
+      <div className="bg-white border border-slate-200 rounded-md p-5 flex items-center justify-between">
+        <div>
+          <div className="font-heading text-xl font-bold">{p.username || p.email?.split('@')[0]} - {p.company_name}</div>
+          <button className="mt-2 text-xs px-3 py-1.5 border border-slate-300 rounded" data-testid="vp-edit-btn">Edit Profile</button>
         </div>
-        <div><Label className="label-tiny">Alamat</Label><Textarea value={p.address||""} onChange={e=>setP({...p,address:e.target.value})} data-testid="vp-address"/></div>
-        <div><Label className="label-tiny">Deskripsi</Label><Textarea value={p.description||""} onChange={e=>setP({...p,description:e.target.value})} data-testid="vp-desc"/></div>
-        <Button onClick={save} data-testid="vp-save">Simpan</Button>
+        <div className="flex gap-2">
+          {TABS.map(t=>(
+            <button key={t.k} onClick={()=>setTab(t.k)} data-testid={`vp-tab-${t.k}`}
+              className={`text-xs px-3 py-2 rounded ${tab===t.k?"bg-slate-900 text-white":"bg-slate-100 hover:bg-slate-200"}`}>{t.label}</button>
+          ))}
+        </div>
       </div>
+
+      {tab==="info" && (
+        <div className="bg-white border border-slate-200 rounded-md p-6 space-y-4">
+          <div className="label-tiny">Company Information</div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><Label className="label-tiny">Username</Label><Input value={p.username||""} onChange={e=>setP({...p,username:e.target.value})} data-testid="vp-username"/></div>
+            <div><Label className="label-tiny">Phone Number</Label><Input value={p.phone||""} onChange={e=>setP({...p,phone:e.target.value})} data-testid="vp-phone"/></div>
+            <div><Label className="label-tiny">Email</Label><Input value={p.email||""} disabled/></div>
+            <div><Label className="label-tiny">NPWP</Label><Input value={p.npwp||""} onChange={e=>setP({...p,npwp:e.target.value})} data-testid="vp-npwp"/></div>
+            <div><Label className="label-tiny">Website</Label><Input value={p.website||""} onChange={e=>setP({...p,website:e.target.value})} data-testid="vp-web"/></div>
+            <div>
+              <Label className="label-tiny">Vendor Notification</Label>
+              <div className="flex gap-4 mt-2 text-sm">
+                <label className="flex items-center gap-2"><input type="radio" name="vn" checked={p.vendor_notification==="emails"} onChange={()=>setP({...p,vendor_notification:"emails"})} data-testid="vp-notif-email"/>Handle By Emails</label>
+                <label className="flex items-center gap-2"><input type="radio" name="vn" checked={p.vendor_notification==="portal"} onChange={()=>setP({...p,vendor_notification:"portal"})} data-testid="vp-notif-portal"/>Handle in Vendor Portal</label>
+              </div>
+            </div>
+          </div>
+          <Button onClick={save} data-testid="vp-save-info">Simpan</Button>
+        </div>
+      )}
+
+      {tab==="address" && (
+        <div className="bg-white border border-slate-200 rounded-md p-6 space-y-4">
+          <div className="flex justify-between"><div className="label-tiny">Alamat</div><Button size="sm" variant="outline" onClick={addAddr} data-testid="vp-addr-add">+ Alamat</Button></div>
+          {(p.addresses||[]).length===0 && <div className="text-xs text-slate-500">Belum ada alamat.</div>}
+          {(p.addresses||[]).map((a,i)=>(
+            <div key={i} className="grid grid-cols-5 gap-2 border border-slate-200 rounded p-2 items-end" data-testid={`vp-addr-${i}`}>
+              <Input placeholder="Label (HO/Cabang)" value={a.label} onChange={e=>setAddr(i,"label",e.target.value)}/>
+              <Input placeholder="Alamat" value={a.address} onChange={e=>setAddr(i,"address",e.target.value)} className="col-span-2"/>
+              <Input placeholder="Kota" value={a.city} onChange={e=>setAddr(i,"city",e.target.value)}/>
+              <div className="flex gap-1"><Input placeholder="Kode Pos" value={a.postal_code} onChange={e=>setAddr(i,"postal_code",e.target.value)}/><button onClick={()=>rmAddr(i)} className="text-red-500 px-2">×</button></div>
+            </div>
+          ))}
+          <Button onClick={save} data-testid="vp-save-addr">Simpan</Button>
+        </div>
+      )}
+
+      {tab==="document" && (
+        <div className="bg-white border border-slate-200 rounded-md p-6 space-y-6">
+          <div>
+            <div className="label-tiny mb-2">Document</div>
+            {[["siup_url","SIUP"],["npwp_url","NPWP"],["akta_url","Akta"]].map(([k,label])=>(
+              <div key={k} className="flex items-center justify-between border-b border-slate-100 py-2">
+                <div><div className="font-semibold text-sm">{label}</div>{p[k] && <a href={p[k]} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline">Lihat file</a>}</div>
+                <input type="file" onChange={e=>e.target.files?.[0] && uploadDoc(e.target.files[0], k)} data-testid={`vp-upload-${k}`} className="text-xs"/>
+              </div>
+            ))}
+          </div>
+          {[["awarding","Awarding"],["certification","Certification"]].map(([key,title])=>(
+            <div key={key}>
+              <div className="flex justify-between mb-2"><div className="label-tiny">{title}</div>
+                <label className="text-xs cursor-pointer bg-slate-900 text-white px-3 py-1 rounded"><input type="file" className="hidden" onChange={e=>e.target.files?.[0] && uploadDoc(e.target.files[0], `add_${key}`, key)} data-testid={`vp-add-${key}`}/> + Upload</label>
+              </div>
+              <table className="data-table">
+                <thead><tr><th>#</th><th>Name</th><th>File</th></tr></thead>
+                <tbody>
+                  {(p[key]||[]).length===0 && <tr><td colSpan={3} className="text-center text-slate-400 py-3">-</td></tr>}
+                  {(p[key]||[]).map((r,i)=>(<tr key={i}><td>{i+1}</td><td>{r.name}</td><td><a href={r.file} target="_blank" rel="noreferrer" className="text-blue-600 underline text-xs">Lihat</a></td></tr>))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab==="pic" && (
+        <div className="bg-white border border-slate-200 rounded-md p-6 space-y-3">
+          <div className="flex justify-between"><div className="label-tiny">Person in Charge (PIC)</div><Button size="sm" variant="outline" onClick={addPIC} data-testid="vp-pic-add">+ PIC</Button></div>
+          {(p.pics||[]).length===0 && <div className="text-xs text-slate-500">Belum ada PIC.</div>}
+          {(p.pics||[]).map((x,i)=>(
+            <div key={i} className="grid grid-cols-5 gap-2 border border-slate-200 rounded p-2 items-end" data-testid={`vp-pic-${i}`}>
+              <Input placeholder="Nama" value={x.name} onChange={e=>setPIC(i,"name",e.target.value)}/>
+              <Input placeholder="Jabatan" value={x.role} onChange={e=>setPIC(i,"role",e.target.value)}/>
+              <Input placeholder="Phone" value={x.phone} onChange={e=>setPIC(i,"phone",e.target.value)}/>
+              <Input placeholder="Email" value={x.email} onChange={e=>setPIC(i,"email",e.target.value)}/>
+              <button onClick={()=>rmPIC(i)} className="text-red-500 justify-self-end">×</button>
+            </div>
+          ))}
+          <Button onClick={save} data-testid="vp-save-pic">Simpan</Button>
+        </div>
+      )}
     </div>
   );
 }
