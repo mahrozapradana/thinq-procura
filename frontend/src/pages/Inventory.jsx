@@ -118,8 +118,12 @@ export default function Inventory() {
                                 <div className="space-y-1">
                                   {(it.lots||[]).map((l,li)=>(
                                     <div key={li} className="flex gap-1 items-center">
-                                      <Input placeholder="Lot #" value={l.lot_number||""} onChange={e=>{
-                                        const items = [...receiptForm.items]; items[i] = {...it, lots: it.lots.map((x,idx)=>idx===li?{...x,lot_number:e.target.value}:x)}; setReceiptForm({...receiptForm, items});
+                                      <Input placeholder="Lot # (scan QR / ketik)" value={l.lot_number||""} onChange={e=>{
+                                        const val = e.target.value;
+                                        // If scan payload has LOT:xxx|BC:yyy pattern, extract
+                                        const m = val.match(/LOT:([^|]+)/i);
+                                        const bc = val.match(/BC:([^|]+)/i);
+                                        const items = [...receiptForm.items]; items[i] = {...it, lots: it.lots.map((x,idx)=>idx===li?{...x, lot_number: m ? m[1].trim() : val, bc_ref: bc ? bc[1].trim() : x.bc_ref}:x)}; setReceiptForm({...receiptForm, items});
                                       }} className="h-7 text-xs" data-testid={`receipt-lot-${i}-${li}`}/>
                                       <Input type="number" placeholder="Qty" value={l.qty||""} onChange={e=>{
                                         const items = [...receiptForm.items]; items[i] = {...it, lots: it.lots.map((x,idx)=>idx===li?{...x,qty:parseFloat(e.target.value||0)}:x)}; setReceiptForm({...receiptForm, items});

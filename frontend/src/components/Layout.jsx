@@ -37,6 +37,9 @@ export default function Layout({ children }) {
               <NavLink to="/vendor/tenders" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-vendor-tenders">
                 <Gavel size={16}/> Tender Terbuka
               </NavLink>
+              <NavLink to="/vendor/rfqs" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-vendor-rfqs">
+                <ClipboardList size={16}/> RFQ / PO Menunggu
+              </NavLink>
               <NavLink to="/vendor/pos" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-vendor-pos">
                 <FileText size={16}/> Purchase Orders
               </NavLink>

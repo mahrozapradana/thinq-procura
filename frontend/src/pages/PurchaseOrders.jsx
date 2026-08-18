@@ -40,7 +40,8 @@ export default function PurchaseOrders() {
   const [detail, setDetail] = useState(null);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [selected, setSelected] = useState({});
-  const [form, setForm] = useState({ po_type: "LOCAL", tax_percent: 11, projects: [] });
+  const [form, setForm] = useState({ po_type: "LOCAL", tax_percent: 11, projects: [], tax_ids: [] });
+  const [taxes, setTaxes] = useState([]);
   const [rating, setRating] = useState(0);
   const [ratingNote, setRatingNote] = useState("");
 
@@ -48,6 +49,7 @@ export default function PurchaseOrders() {
     api.get(`/pos?page=${page}&page_size=20&q=${encodeURIComponent(q)}`).then(r=>{ setPos(r.data.items); setTotal(r.data.total); setPages(r.data.pages); });
     api.get("/prs?page_size=100&status=approved").then(r=>setPrs(r.data.items || []));
     api.get("/vendors?status=approved&exclude_blacklisted=true").then(r=>setVendors(r.data));
+    api.get("/taxes?active_only=true").then(r=>setTaxes(r.data)).catch(()=>{});
   };
   useEffect(() => { load(); }, [page, q]);
 
@@ -56,7 +58,7 @@ export default function PurchaseOrders() {
   const createPO = async () => {
     try {
       await api.post("/pos", { ...form, pr_ids: selectedIds });
-      toast.success("PO dibuat"); setMergeOpen(false); setSelected({}); setForm({po_type:"LOCAL"}); load();
+      toast.success("PO dibuat"); setMergeOpen(false); setSelected({}); setForm({po_type:"LOCAL", tax_ids:[]}); load();
     } catch(e){ toast.error(e.response?.data?.detail); }
   };
   const approve = async (id) => { await api.post(`/pos/${id}/approve`); toast.success("Approved"); load(); };
@@ -160,6 +162,33 @@ export default function PurchaseOrders() {
               </div>
               <div><Label className="label-tiny">Delivery Date</Label><Input type="date" value={form.delivery_date||""} onChange={e=>setForm({...form,delivery_date:e.target.value})} data-testid="po-delivery"/></div>
             </div>
+            <div>
+              <Label className="label-tiny">Pajak (bisa lebih dari satu — sales menambah, withholding mengurangi)</Label>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-1 max-h-32 overflow-y-auto border border-slate-200 rounded p-2 text-xs mt-1" data-testid="po-tax-list">
+                {taxes.length===0 && <div className="text-slate-400 col-span-full text-center py-2">Belum ada master pajak. Tambah di Master Data → Pajak.</div>}
+                {taxes.map(tx=>(
+                  <label key={tx.id} className={`flex items-center gap-1.5 cursor-pointer px-2 py-1 rounded ${(form.tax_ids||[]).includes(tx.id)?"bg-slate-900 text-white":"hover:bg-slate-100"}`}>
+                    <input type="checkbox" checked={(form.tax_ids||[]).includes(tx.id)}
+                      onChange={e=>setForm({...form, tax_ids: e.target.checked ? [...(form.tax_ids||[]), tx.id] : (form.tax_ids||[]).filter(x=>x!==tx.id)})}
+                      data-testid={`po-tax-${tx.code}`}/>
+                    <span className="font-semibold">{tx.code}</span>
+                    <span className="opacity-70">{tx.rate}%</span>
+                  </label>
+                ))}
+              </div>
+              {(form.tax_ids||[]).length>0 && (()=>{
+                const untaxed = selectedIds.reduce((s,id)=>s + (prs.find(p=>p.id===id)?.total||0), 0);
+                const applied = taxes.filter(t=>form.tax_ids.includes(t.id));
+                const salesTotal = applied.filter(t=>t.tax_type!=="withholding").reduce((s,t)=>s+untaxed*t.rate/100,0);
+                const whTotal = applied.filter(t=>t.tax_type==="withholding").reduce((s,t)=>s+untaxed*t.rate/100,0);
+                const grand = untaxed + salesTotal - whTotal;
+                return <div className="mt-2 p-2 bg-slate-50 border border-slate-200 rounded text-xs font-mono space-y-0.5" data-testid="po-tax-preview">
+                  <div className="flex justify-between"><span>Subtotal (untaxed)</span><span>{fmtIDR(untaxed)}</span></div>
+                  {applied.map(t=>(<div key={t.id} className="flex justify-between"><span>{t.name} ({t.rate}%)</span><span>{t.tax_type==="withholding"?"-":"+"}{fmtIDR(untaxed*t.rate/100)}</span></div>))}
+                  <div className="flex justify-between border-t pt-1 mt-1 font-bold"><span>Grand Total</span><span>{fmtIDR(grand)}</span></div>
+                </div>;
+              })()}
+            </div>
             <div className="border border-slate-200 rounded max-h-72 overflow-y-auto">
               <table className="data-table">
                 <thead><tr><th></th><th>PR</th><th>Requester</th><th>Total</th></tr></thead>
@@ -205,15 +234,23 @@ export default function PurchaseOrders() {
                 <div>
                   <table className="data-table">
                     <thead><tr><th>#</th><th>Product</th><th>Description</th><th>Projects</th><th>Qty</th><th>Unit Price</th><th>Taxes</th><th>Subtotal</th></tr></thead>
-                    <tbody>{detail.items?.map((it,i)=>(<tr key={i}><td>{i+1}</td><td className="font-mono text-xs">[{it.product_id?.slice(0,8)}] {it.product_name}</td><td className="text-xs">{it.product_name}</td><td className="text-xs">{(detail.projects||[]).join(",")}</td><td>{it.qty}</td><td className="font-mono">{fmtIDR(it.price)}</td><td className="text-xs">PPN {detail.tax_percent||11}%</td><td className="font-mono">{fmtIDR(it.subtotal)}</td></tr>))}</tbody>
+                    <tbody>{detail.items?.map((it,i)=>(<tr key={i}><td>{i+1}</td><td className="font-mono text-xs">[{it.product_id?.slice(0,8)}] {it.product_name}</td><td className="text-xs">{it.product_name}</td><td className="text-xs">{(detail.projects||[]).join(",")}</td><td>{it.qty}</td><td className="font-mono">{fmtIDR(it.price)}</td><td className="text-xs">{(detail.taxes_snapshot||[]).length>0 ? detail.taxes_snapshot.map(t=>t.code).join(", ") : `PPN ${detail.tax_percent||0}%`}</td><td className="font-mono">{fmtIDR(it.subtotal)}</td></tr>))}</tbody>
                   </table>
                 </div>
                 <div className="flex justify-end">
-                  <div className="w-64 text-sm space-y-1">
+                  <div className="w-72 text-sm space-y-1">
                     <div className="flex justify-between"><span className="text-slate-500">Untaxed Amount</span><span className="font-mono">{fmtIDR(detail.untaxed_amount || detail.total)}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">DPP Nilai Lain</span><span className="font-mono">{fmtIDR(detail.dpp_nilai_lain || 0)}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Amount Tax ({detail.tax_percent||0}%)</span><span className="font-mono">{fmtIDR(detail.amount_tax || 0)}</span></div>
-                    <div className="flex justify-between border-t pt-1 mt-1 font-bold"><span>Amount Total</span><span className="font-mono">{fmtIDR(detail.amount_total || detail.total)}</span></div>
+                    {(detail.tax_breakdown||[]).map((tx,i)=>(
+                      <div key={i} className="flex justify-between text-xs">
+                        <span className="text-slate-500">{tx.name} ({tx.rate}%){tx.tax_type==="withholding"?" — potongan":""}</span>
+                        <span className="font-mono">{tx.tax_type==="withholding"?"-":"+"}{fmtIDR(Math.abs(tx.amount))}</span>
+                      </div>
+                    ))}
+                    {(!detail.tax_breakdown || detail.tax_breakdown.length===0) && detail.amount_tax>0 && (
+                      <div className="flex justify-between"><span className="text-slate-500">Amount Tax ({detail.tax_percent||0}%)</span><span className="font-mono">{fmtIDR(detail.amount_tax)}</span></div>
+                    )}
+                    {detail.dpp_nilai_lain>0 && <div className="flex justify-between"><span className="text-slate-500">DPP Nilai Lain</span><span className="font-mono">{fmtIDR(detail.dpp_nilai_lain)}</span></div>}
+                    <div className="flex justify-between border-t pt-1 mt-1 font-bold"><span>Grand Total</span><span className="font-mono">{fmtIDR(detail.amount_total || detail.total)}</span></div>
                   </div>
                 </div>
                 <div>

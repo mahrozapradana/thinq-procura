@@ -397,6 +397,7 @@ class POCreateIn(BaseModel):
     tax_percent: float = 11.0
     dpp_nilai_lain: float = 0.0
     assigned_pic_id: Optional[str] = None
+    tax_ids: List[str] = Field(default_factory=list)  # many2many taxes
 
 
 @router.get("/pos")
@@ -486,7 +487,17 @@ async def create_po(payload: POCreateIn, user=Depends(get_current_active_user)):
             total += it["subtotal"]
 
     tax_percent = float(payload.tax_percent or 0)
-    amount_tax = total * tax_percent / 100.0
+    # Multi-tax (many2many) breakdown if tax_ids provided; else fallback to single tax_percent
+    from routes_taxes import compute_tax_breakdown  # local import to avoid cycle
+    if payload.tax_ids:
+        breakdown = await compute_tax_breakdown(db, total, payload.tax_ids)
+        amount_tax = breakdown["tax_total"]
+        tax_breakdown = breakdown["tax_breakdown"]
+        taxes_snapshot = breakdown["taxes_snapshot"]
+    else:
+        amount_tax = total * tax_percent / 100.0
+        tax_breakdown = [{"code": f"PPN{int(tax_percent)}", "name": f"PPN {tax_percent}%", "rate": tax_percent, "base": total, "amount": amount_tax, "tax_type": "sales"}] if tax_percent else []
+        taxes_snapshot = []
     amount_total = total + amount_tax + float(payload.dpp_nilai_lain or 0)
 
     wf = await _pick_workflow(db, "PO", None)
@@ -505,6 +516,9 @@ async def create_po(payload: POCreateIn, user=Depends(get_current_active_user)):
         "untaxed_amount": total,
         "tax_percent": tax_percent,
         "amount_tax": amount_tax,
+        "tax_ids": payload.tax_ids,
+        "tax_breakdown": tax_breakdown,
+        "taxes_snapshot": taxes_snapshot,
         "dpp_nilai_lain": float(payload.dpp_nilai_lain or 0),
         "amount_total": amount_total,
         "currency": "IDR",

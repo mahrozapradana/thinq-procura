@@ -113,6 +113,7 @@ export default function CustomsDocuments() {
                   <TabsTrigger value="detail" data-testid="ct-tab-detail">Detail</TabsTrigger>
                   <TabsTrigger value="document" data-testid="ct-tab-document">Document</TabsTrigger>
                   <TabsTrigger value="petikemas" data-testid="ct-tab-petikemas">Petikemas</TabsTrigger>
+                  <TabsTrigger value="audit" data-testid="ct-tab-audit">Audit Trail</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="header">
@@ -169,6 +170,10 @@ export default function CustomsDocuments() {
                       {k:"nomor_kontainer", label:"Nomor"},
                       {k:"note", label:"Note"},
                     ]} testid="ct-pk"/>
+                </TabsContent>
+
+                <TabsContent value="audit">
+                  <AuditTrail docId={detail.id}/>
                 </TabsContent>
               </Tabs>
                 <DialogFooter>
@@ -270,3 +275,34 @@ function ListEditor({ rows, onChange, fields, testid }) {
     </div>
   );
 }
+
+
+function AuditTrail({ docId }) {
+  const [rows, setRows] = useState([]);
+  useEffect(()=>{ api.get(`/customs-docs/${docId}/history`).then(r=>setRows(r.data)); }, [docId]);
+  return (
+    <div className="mt-3 space-y-2">
+      <div className="text-xs text-slate-500">Riwayat perubahan dokumen (siap audit Bea Cukai).</div>
+      {rows.length===0 && <div className="text-center text-slate-400 py-8 text-xs">Belum ada perubahan tercatat.</div>}
+      {rows.map((r,i)=>(
+        <div key={i} className="border border-slate-200 rounded p-3 bg-slate-50" data-testid={`audit-row-${i}`}>
+          <div className="flex justify-between text-xs">
+            <div><b>{r.by_name}</b> · <span className="uppercase tracking-wider text-slate-500">{r.action}</span></div>
+            <div className="font-mono text-slate-500">{new Date(r.at).toLocaleString("id-ID")}</div>
+          </div>
+          <div className="mt-2 text-xs space-y-1">
+            {Object.entries(r.changes || {}).map(([k, chg])=>(
+              <div key={k} className="grid grid-cols-4 gap-2 border-b border-slate-100 py-1">
+                <div className="font-semibold text-slate-700">{k}</div>
+                <div className="text-red-600 line-through break-all">{String(chg.before ?? "-")}</div>
+                <div className="text-slate-400">→</div>
+                <div className="text-emerald-700 font-semibold break-all">{String(chg.after ?? "-")}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import io
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import qrcode
@@ -91,11 +91,12 @@ async def warehouse_stock(warehouse_id: Optional[str] = None, is_bonded: Optiona
     products = {p["id"]: p for p in await db.products.find({}, {"_id": 0}).to_list(2000)}
     receipts = await db.goods_receipts.find({}, {"_id": 0}).to_list(5000)
     returns_ = await db.goods_returns.find({}, {"_id": 0}).to_list(5000)
-    # Aggregate: {(warehouse_id, location_id, product_id, lot_number): qty}
+    # Aggregate: {(warehouse_id, location_id, product_id, lot_number): {qty, earliest_at}}
     stock: dict = {}
     for r in receipts:
         wh = r.get("warehouse_id")
         loc = r.get("location_id")
+        at = r.get("created_at") or now_iso()
         for it in r.get("items", []):
             lots = it.get("lots") or []
             if not lots and it.get("lot_number"):
@@ -104,7 +105,11 @@ async def warehouse_stock(warehouse_id: Optional[str] = None, is_bonded: Optiona
                 lots = [{"lot_number": None, "qty": it.get("qty_received")}]
             for lot in lots:
                 k = (wh, loc, it.get("product_id"), lot.get("lot_number"))
-                stock[k] = stock.get(k, 0) + float(lot.get("qty") or 0)
+                prev = stock.get(k) or {"qty": 0.0, "at": at}
+                prev["qty"] = prev["qty"] + float(lot.get("qty") or 0)
+                if at < prev["at"]:
+                    prev["at"] = at
+                stock[k] = prev
     for rr in returns_:
         # returns decrease stock; use receipt info to determine wh/loc
         rec = next((x for x in receipts if x.get("id") == rr.get("receipt_id")), None) if rr.get("receipt_id") else None
@@ -113,8 +118,10 @@ async def warehouse_stock(warehouse_id: Optional[str] = None, is_bonded: Optiona
         for it in rr.get("items", []):
             k = (wh, loc, it.get("product_id"), None)
             stock[k] = stock.get(k, 0) - float(it.get("qty") or 0)
+    _now = datetime.now(timezone.utc)
     rows = []
-    for (wh, loc, pid, lot), qty in stock.items():
+    for (wh, loc, pid, lot), data in stock.items():
+        qty = data.get("qty", 0) if isinstance(data, dict) else data
         if qty <= 0:
             continue
         w = warehouses.get(wh) or {}
@@ -128,13 +135,19 @@ async def warehouse_stock(warehouse_id: Optional[str] = None, is_bonded: Optiona
             s = q.lower()
             if not any(s in str(v or "").lower() for v in [w.get("name"), l.get("name"), p.get("name"), p.get("code"), lot]):
                 continue
+        try:
+            aged_days = (_now - datetime.fromisoformat(data["at"])).days if isinstance(data, dict) and data.get("at") else 0
+        except Exception:
+            aged_days = 0
         rows.append({
             "warehouse_id": wh, "warehouse_name": w.get("name") or "-", "warehouse_bonded": bool(w.get("is_bonded")),
             "location_id": loc, "location_name": l.get("name") or "-", "location_bonded": bool(l.get("is_bonded_zone")),
             "product_id": pid, "product_code": p.get("code"), "product_name": p.get("name"),
             "unit": p.get("unit"), "lot_number": lot, "qty": qty,
+            "aged_days": aged_days,
+            "aging_alert": bool(w.get("is_bonded")) and aged_days > 60,
         })
-    rows.sort(key=lambda x: (x["warehouse_name"], x["product_name"] or "", x["lot_number"] or ""))
+    rows.sort(key=lambda x: (-x["aged_days"], x["warehouse_name"], x["product_name"] or ""))
     return rows
 
 

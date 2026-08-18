@@ -7,7 +7,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Send, XCircle, Plus, FileUp, Upload } from "lucide-react";
+import { Send, XCircle, Plus, FileUp, Upload, Eye, Clock } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 async function uploadFile(file) {
@@ -29,7 +30,76 @@ const STATUS = {
   open:"bg-emerald-100 text-emerald-700", closed:"bg-amber-100 text-amber-700", awarded:"bg-blue-100 text-blue-700",
   submitted:"bg-blue-100 text-blue-700", declined:"bg-slate-100 text-slate-700",
   outstanding:"bg-amber-100 text-amber-700", paid:"bg-emerald-100 text-emerald-700",
+  draft:"bg-slate-100 text-slate-700", pending_approval:"bg-amber-100 text-amber-700",
+  approved:"bg-emerald-100 text-emerald-700", sent:"bg-blue-100 text-blue-700",
+  partial:"bg-amber-100 text-amber-700", completed:"bg-emerald-100 text-emerald-700",
 };
+
+function PODetailSheet({ poId, onClose }) {
+  const [po, setPo] = useState(null);
+  useEffect(()=>{
+    if(!poId) return;
+    setPo(null);
+    api.get(`/vendor-portal/pos/${poId}`).then(r=>setPo(r.data)).catch(()=>{});
+  }, [poId]);
+  return (
+    <Sheet open={!!poId} onOpenChange={(v)=>!v && onClose()}>
+      <SheetContent className="w-full sm:max-w-2xl overflow-y-auto bg-white" data-testid="vendor-po-detail">
+        {!po ? <div className="p-6 text-sm text-slate-500">Memuat...</div> : (
+          <>
+            <SheetHeader>
+              <SheetTitle className="font-mono">#{po.po_number}</SheetTitle>
+            </SheetHeader>
+            <div className="mt-4 space-y-4">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                <div><div className="label-tiny">Type</div><div><span className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded ${po.po_type==="BONDED"?"bg-blue-100 text-blue-700":"bg-slate-100"}`}>{po.po_type}</span></div></div>
+                <div><div className="label-tiny">Status</div><div><span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS[po.status]||"bg-slate-100"}`}>{po.status}</span></div></div>
+                <div><div className="label-tiny">Order Date</div><div>{po.order_date ? new Date(po.order_date).toLocaleDateString("id-ID") : "-"}</div></div>
+                <div><div className="label-tiny">Delivery Date</div><div>{po.delivery_date || "-"}</div></div>
+                <div><div className="label-tiny">Payment Terms</div><div>{po.payment_terms || "-"}</div></div>
+                <div><div className="label-tiny">Shipping</div><div className="uppercase text-xs">{po.shipping_status}</div></div>
+              </div>
+              <div className="border border-slate-200 rounded overflow-hidden">
+                <table className="data-table">
+                  <thead><tr><th>#</th><th>Product</th><th>Qty</th><th>Unit Price</th><th>Subtotal</th></tr></thead>
+                  <tbody>
+                    {(po.items||[]).map((it,i)=>(
+                      <tr key={i}>
+                        <td>{i+1}</td>
+                        <td className="text-xs">{it.product_name || it.product_id}</td>
+                        <td>{it.qty}</td>
+                        <td className="font-mono">{fmtIDR(it.price)}</td>
+                        <td className="font-mono">{fmtIDR(it.subtotal)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex justify-end">
+                <div className="w-72 text-sm space-y-1">
+                  <div className="flex justify-between"><span className="text-slate-500">Subtotal (untaxed)</span><span className="font-mono">{fmtIDR(po.untaxed_amount || po.total)}</span></div>
+                  {(po.tax_breakdown||[]).map((tx,i)=>(
+                    <div key={i} className="flex justify-between text-xs">
+                      <span className="text-slate-500">{tx.name} ({tx.rate}%){tx.tax_type==="withholding"?" — potongan":""}</span>
+                      <span className="font-mono">{tx.tax_type==="withholding"?"-":"+"}{fmtIDR(Math.abs(tx.amount))}</span>
+                    </div>
+                  ))}
+                  {(!po.tax_breakdown || po.tax_breakdown.length===0) && po.amount_tax>0 && (
+                    <div className="flex justify-between"><span className="text-slate-500">Pajak ({po.tax_percent||0}%)</span><span className="font-mono">+{fmtIDR(po.amount_tax)}</span></div>
+                  )}
+                  {po.dpp_nilai_lain>0 && <div className="flex justify-between"><span className="text-slate-500">DPP Nilai Lain</span><span className="font-mono">{fmtIDR(po.dpp_nilai_lain)}</span></div>}
+                  <div className="flex justify-between border-t pt-1 mt-1 font-bold"><span>Grand Total</span><span className="font-mono">{fmtIDR(po.amount_total || po.total)}</span></div>
+                </div>
+              </div>
+              {po.notes && <div className="bg-slate-50 border border-slate-200 rounded p-3 text-xs"><div className="label-tiny mb-1">Catatan</div>{po.notes}</div>}
+              <div className="text-[10px] text-slate-400 italic">Read-only view. Untuk pertanyaan gunakan chat pada PO (tersedia setelah PO disetujui).</div>
+            </div>
+          </>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
 
 export function VendorHome() {
   const [pos, setPos] = useState([]);
@@ -113,28 +183,70 @@ export function VendorTenders() {
 
 export function VendorPOs() {
   const [rows, setRows] = useState([]);
+  const [detailId, setDetailId] = useState(null);
   useEffect(()=>{ api.get("/vendor-portal/pos").then(r=>setRows(r.data)); },[]);
   return (
     <div className="space-y-4" data-testid="vendor-pos">
       <h1 className="font-heading text-3xl font-bold tracking-tight">Purchase Orders Saya</h1>
+      <p className="text-xs text-slate-500">Hanya PO yang sudah disetujui procurement & ditujukan pada perusahaan Anda. Read-only.</p>
       <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
         <table className="data-table">
-          <thead><tr><th>No PO</th><th>Type</th><th>Total</th><th>Status</th><th>Shipping</th><th>Invoice</th></tr></thead>
+          <thead><tr><th>No PO</th><th>Type</th><th>Untaxed</th><th>Pajak</th><th>Grand Total</th><th>Status</th><th>Shipping</th><th>Invoice</th><th></th></tr></thead>
           <tbody>
-            {rows.length===0 && <tr><td colSpan={6} className="text-center py-6 text-slate-400">Belum ada PO</td></tr>}
+            {rows.length===0 && <tr><td colSpan={9} className="text-center py-6 text-slate-400">Belum ada PO aktif</td></tr>}
             {rows.map(p=>(
               <tr key={p.id} data-testid={`vpo-row-${p.id}`}>
                 <td className="font-mono text-xs">{p.po_number}</td>
-                <td>{p.po_type}</td>
-                <td className="font-mono">{fmtIDR(p.total)}</td>
-                <td className="text-xs uppercase font-semibold">{p.status}</td>
+                <td><span className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded ${p.po_type==="BONDED"?"bg-blue-100 text-blue-700":"bg-slate-100"}`}>{p.po_type}</span></td>
+                <td className="font-mono text-xs">{fmtIDR(p.untaxed_amount || p.total)}</td>
+                <td className="text-xs">{(p.taxes_snapshot||[]).map(t=>t.code).join(", ") || (p.tax_percent?`PPN ${p.tax_percent}%`:"-")}</td>
+                <td className="font-mono font-semibold">{fmtIDR(p.amount_total || p.total)}</td>
+                <td><span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS[p.status]||"bg-slate-100"}`}>{p.status}</span></td>
                 <td className="text-xs">{p.shipping_status}</td>
                 <td className="text-xs">{p.invoice_status}</td>
+                <td className="text-right"><button onClick={()=>setDetailId(p.id)} className="p-1 hover:bg-slate-100 rounded" data-testid={`vpo-view-${p.id}`}><Eye size={14}/></button></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      <PODetailSheet poId={detailId} onClose={()=>setDetailId(null)} />
+    </div>
+  );
+}
+
+export function VendorRFQs() {
+  const [rows, setRows] = useState([]);
+  const [detailId, setDetailId] = useState(null);
+  useEffect(()=>{ api.get("/vendor-portal/rfqs").then(r=>setRows(r.data)); },[]);
+  return (
+    <div className="space-y-4" data-testid="vendor-rfqs">
+      <div>
+        <div className="label-tiny">Vendor Portal</div>
+        <h1 className="font-heading text-3xl font-bold tracking-tight">RFQ / PO Menunggu Persetujuan</h1>
+        <p className="text-sm text-slate-600 mt-1">Daftar PO yang belum final — masih dalam proses approval internal buyer. Anda hanya dapat melihat, belum bisa diproses lebih lanjut.</p>
+      </div>
+      <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+        <table className="data-table">
+          <thead><tr><th>No RFQ / PO</th><th>Type</th><th>Untaxed</th><th>Pajak</th><th>Grand Total</th><th>Status</th><th>Order Date</th><th></th></tr></thead>
+          <tbody>
+            {rows.length===0 && <tr><td colSpan={8} className="text-center py-6 text-slate-400">Tidak ada RFQ / PO menunggu</td></tr>}
+            {rows.map(p=>(
+              <tr key={p.id} data-testid={`vrfq-row-${p.id}`}>
+                <td className="font-mono text-xs">{p.po_number}</td>
+                <td><span className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded ${p.po_type==="BONDED"?"bg-blue-100 text-blue-700":"bg-slate-100"}`}>{p.po_type}</span></td>
+                <td className="font-mono text-xs">{fmtIDR(p.untaxed_amount || p.total)}</td>
+                <td className="text-xs">{(p.taxes_snapshot||[]).map(t=>t.code).join(", ") || (p.tax_percent?`PPN ${p.tax_percent}%`:"-")}</td>
+                <td className="font-mono font-semibold">{fmtIDR(p.amount_total || p.total)}</td>
+                <td><span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS[p.status]||"bg-slate-100"}`}><Clock size={10} className="inline mr-1"/>{p.status}</span></td>
+                <td className="text-xs">{p.order_date ? new Date(p.order_date).toLocaleDateString("id-ID") : "-"}</td>
+                <td className="text-right"><button onClick={()=>setDetailId(p.id)} className="p-1 hover:bg-slate-100 rounded" data-testid={`vrfq-view-${p.id}`}><Eye size={14}/></button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <PODetailSheet poId={detailId} onClose={()=>setDetailId(null)} />
     </div>
   );
 }

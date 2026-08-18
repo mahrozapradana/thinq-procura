@@ -142,3 +142,28 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - **Multi-Lot Goods Receipt**: input multi-lot per item saat penerimaan barang (lot number + qty), pilih Warehouse+Location, dan link ke Dokumen BC bila PO Bonded.
 - **BC Print PDF**: `GET /api/customs-docs/{id}/print.pdf` — header + item table + document + petikemas + tanda tangan. Tombol "Print PDF" di editor BC.
 - **BC → Odoo Landed Cost**: `POST /api/customs-docs/{id}/sync-odoo` menciptakan stock.landed.cost di Odoo dengan cost line Freight/Insurance/BMT. Fallback message ramah jika module Purchase Landed Costs belum terinstall di Odoo.
+
+
+## Iteration 11 – 2026-02-18 (Multi-Tax + Vendor RFQ Scoping)
+### Added
+- **Master Tax (Pajak) m2m**: New collection `taxes` + CRUD `/api/taxes` (admin/procurement/finance). Fields: code, name, rate%, tax_type (sales/withholding/other), is_active. UI di Master Data → tab **Pajak**. Seeded: PPN11 (11% sales) + PPH23 (2% withholding).
+- **PO Multi-Tax Application**: `POCreateIn.tax_ids: List[str]` many2many. Backend menghitung `tax_breakdown` per pajak (sales +, withholding -), `amount_tax` net, `amount_total`. Snapshot `taxes_snapshot` disimpan agar tetap traceable meski master pajak berubah.
+- **PurchaseOrders UI**: Merge dialog dapat pilih multiple pajak via checkbox + live preview subtotal → tax breakdown → grand total. Detail Sheet menampilkan tax breakdown lengkap.
+- **Vendor Portal — Menu Terbatas & Scoping Ketat**:
+  - **RFQ menu (baru)** `/vendor/rfqs` — GET `/api/vendor-portal/rfqs` menampilkan PO yang di-assign ke vendor DAN status `draft`/`pending_approval` (read-only).
+  - **Purchase Orders** — GET `/api/vendor-portal/pos` sekarang hanya menampilkan status `approved`/`sent`/`partial`/`completed`.
+  - **PO Detail read-only** — GET `/api/vendor-portal/pos/{id}` dengan tax breakdown. Sheet detail di frontend menampilkan items + subtotal + rincian pajak + grand total.
+  - **Tender Filter** — hanya menampilkan tender `status=open` yang di-invite ke vendor / public (invited_vendor_ids kosong), atau tender di mana vendor sudah pernah bid / awarded.
+  - **PIC-scoped access** — jika user adalah PIC (`is_pic=true`), semua filter tambah `assigned_pic_id = user.id`.
+### Verified
+- POST /api/taxes (2 pajak) → 200 OK
+- POST /api/pos dengan tax_ids `[PPN11, PPH23]`: untaxed 7.000.000 → amount_tax 630.000 (770K - 140K) → total 7.630.000 ✓
+- Login vendor `test_vendor_423f4216@example.com / vendor123` → auto redirect `/vendor`
+- Sidebar vendor: Dashboard, Tender Terbuka, RFQ / PO Menunggu, Purchase Orders, Pengiriman, Invoice, Dokumen LS, Profil Perusahaan (menu internal diblok oleh ProtectedRoute)
+- RFQ list menampilkan PO status `pending_approval` dengan tax breakdown terlihat di detail
+- Read-only enforcement: vendor tidak bisa akses `/masters`, `/users`, `/settings` (redirect ke `/`)
+
+### Backlog / Next
+- P1: Odoo XML-RPC sinkronisasi PO sekarang harus mengirim tax_ids (pemetaan ke account.tax di Odoo)
+- P2: Barcode scanner E2E validation
+- P2: Refactoring `server.py` bila > 700 baris

@@ -106,6 +106,7 @@ export default function MasterData() {
           <TabsTrigger value="hs" data-testid="tab-hs">HS Codes</TabsTrigger>
           <TabsTrigger value="warehouses" data-testid="tab-warehouses">Warehouses</TabsTrigger>
           <TabsTrigger value="locations" data-testid="tab-locations">Locations</TabsTrigger>
+          <TabsTrigger value="taxes" data-testid="tab-taxes">Pajak</TabsTrigger>
         </TabsList>
         <TabsContent value="products" className="mt-4">
           <DataSection
@@ -161,6 +162,25 @@ export default function MasterData() {
           <DataSection testid="loc-section" title="Locations" endpoint="/locations"
             columns={[{key:"code",label:"Code"},{key:"name",label:"Name"},{key:"warehouse_id",label:"Warehouse"},{key:"is_bonded_zone",label:"Bonded Zone",render:r=>r.is_bonded_zone?<span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold uppercase">KB</span>:"-"}]}
             fields={[{key:"code",label:"Code"},{key:"name",label:"Name"},{key:"warehouse_id",label:"Warehouse ID"},{key:"is_bonded_zone",label:"Bonded Zone (1/0)",type:"number"}]}/>
+        </TabsContent>
+        <TabsContent value="taxes" className="mt-4">
+          <DataSection testid="tax-section" title="Master Pajak (many2many pada PO)" endpoint="/taxes"
+            columns={[
+              {key:"code",label:"Kode"},
+              {key:"name",label:"Nama"},
+              {key:"rate",label:"Rate %",render:r=>`${r.rate}%`},
+              {key:"tax_type",label:"Tipe",render:r=><span className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded ${r.tax_type==="withholding"?"bg-amber-100 text-amber-700":r.tax_type==="sales"?"bg-emerald-100 text-emerald-700":"bg-slate-100 text-slate-700"}`}>{r.tax_type}</span>},
+              {key:"is_active",label:"Aktif",render:r=>r.is_active?"✓":"-"},
+              {key:"description",label:"Deskripsi"},
+            ]}
+            fields={[
+              {key:"code",label:"Kode (mis: PPN11, PPH23)"},
+              {key:"name",label:"Nama (mis: PPN 11%)"},
+              {key:"rate",label:"Rate (%)",type:"number"},
+              {key:"tax_type",label:"Tipe",type:"select",options:[{value:"sales",label:"Sales (menambah total)"},{value:"withholding",label:"Withholding / PPh (mengurangi total)"},{value:"other",label:"Lainnya"}]},
+              {key:"is_active",label:"Aktif (1/0)",type:"number"},
+              {key:"description",label:"Deskripsi"},
+            ]}/>
         </TabsContent>
       </Tabs>
     </div>

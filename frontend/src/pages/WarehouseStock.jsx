@@ -49,17 +49,18 @@ export default function WarehouseStock() {
       </div>
       <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table" style={{ minWidth: 1000 }}>
-          <thead><tr><th>Warehouse</th><th>Location</th><th>Product</th><th>Lot #</th><th>Qty</th><th>Unit</th><th>Bonded</th></tr></thead>
+          <thead><tr><th>Warehouse</th><th>Location</th><th>Product</th><th>Lot #</th><th>Qty</th><th>Unit</th><th>Umur (hari)</th><th>Bonded</th></tr></thead>
           <tbody>
-            {rows.length===0 && <tr><td colSpan={7} className="text-center py-6 text-slate-400">Tidak ada stok</td></tr>}
+            {rows.length===0 && <tr><td colSpan={8} className="text-center py-6 text-slate-400">Tidak ada stok</td></tr>}
             {rows.map((r,i)=>(
-              <tr key={i} data-testid={`stock-row-${i}`} className={r.warehouse_bonded?"bg-blue-50/30":""}>
+              <tr key={i} data-testid={`stock-row-${i}`} className={r.aging_alert?"bg-red-50":(r.warehouse_bonded?"bg-blue-50/30":"")}>
                 <td className="whitespace-nowrap">{r.warehouse_name}</td>
                 <td className="whitespace-nowrap">{r.location_name}</td>
                 <td className="whitespace-nowrap"><span className="font-mono text-xs text-slate-500">{r.product_code}</span> {r.product_name}</td>
                 <td className="font-mono text-xs">{r.lot_number || "-"}</td>
                 <td className="font-mono font-semibold">{r.qty}</td>
                 <td>{r.unit}</td>
+                <td className={`font-mono ${r.aging_alert?"text-red-600 font-bold":r.aged_days>30?"text-amber-600":"text-slate-500"}`}>{r.aged_days} hr {r.aging_alert && <span className="text-[10px] uppercase ml-1 px-1 rounded bg-red-100 text-red-700">⚠ AGING</span>}</td>
                 <td>{r.warehouse_bonded ? <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">Bonded</span> : "-"}</td>
               </tr>
             ))}

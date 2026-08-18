@@ -19,7 +19,7 @@ import WarehouseStock from "@/pages/WarehouseStock";
 import InvoicesFinance from "@/pages/InvoicesFinance";
 import SettingsPage from "@/pages/SettingsPage";
 import {
-  VendorHome, VendorTenders, VendorPOs, VendorShipments, VendorInvoices, VendorLS, VendorProfile,
+  VendorHome, VendorTenders, VendorPOs, VendorRFQs, VendorShipments, VendorInvoices, VendorLS, VendorProfile,
 } from "@/pages/VendorPortal";
 import "@/App.css";
 
@@ -56,6 +56,7 @@ function App() {
           {/* Vendor portal */}
           <Route path="/vendor" element={<ProtectedRoute roles={["vendor"]}><Layout><VendorHome/></Layout></ProtectedRoute>} />
           <Route path="/vendor/tenders" element={<ProtectedRoute roles={["vendor"]}><Layout><VendorTenders/></Layout></ProtectedRoute>} />
+          <Route path="/vendor/rfqs" element={<ProtectedRoute roles={["vendor"]}><Layout><VendorRFQs/></Layout></ProtectedRoute>} />
           <Route path="/vendor/pos" element={<ProtectedRoute roles={["vendor"]}><Layout><VendorPOs/></Layout></ProtectedRoute>} />
           <Route path="/vendor/shipments" element={<ProtectedRoute roles={["vendor"]}><Layout><VendorShipments/></Layout></ProtectedRoute>} />
           <Route path="/vendor/invoices" element={<ProtectedRoute roles={["vendor"]}><Layout><VendorInvoices/></Layout></ProtectedRoute>} />

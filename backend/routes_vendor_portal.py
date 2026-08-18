@@ -82,14 +82,40 @@ async def update_vendor_profile(payload: ProfileUpdateIn, user=Depends(get_curre
 async def vendor_tenders(user=Depends(get_current_active_user)):
     vid = _require_vendor(user)
     db = get_db()
+    # Only OPEN tenders OR tenders where this vendor has participated (bid/decline) OR was invited
     q = {
-        "status": {"$in": ["open", "closed", "awarded"]},
         "$or": [
+            {"status": "open", "$or": [{"invited_vendor_ids": vid}, {"invited_vendor_ids": {"$in": [None, []]}}, {"invited_vendor_ids": {"$exists": False}}]},
             {"invited_vendor_ids": vid},
-            {"invited_vendor_ids": []},
+            {"bids.vendor_id": vid},
+            {"awarded_vendor_id": vid},
         ],
     }
-    return await db.tenders.find(q, {"_id": 0}).to_list(1000)
+    return await db.tenders.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
+
+@router.get("/vendor-portal/rfqs")
+async def vendor_rfqs(user=Depends(get_current_active_user)):
+    """List of POs directed to this vendor that are still draft or pending approval (RFQ / pre-PO)."""
+    vid = _require_vendor(user)
+    db = get_db()
+    q = {"vendor_id": vid, "status": {"$in": ["draft", "pending_approval"]}}
+    if user.get("is_pic"):
+        q["assigned_pic_id"] = user["id"]
+    return await db.pos.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
+
+@router.get("/vendor-portal/pos/{pid}")
+async def vendor_po_detail(pid: str, user=Depends(get_current_active_user)):
+    """Read-only PO detail for vendor including tax breakdown."""
+    vid = _require_vendor(user)
+    db = get_db()
+    po = await db.pos.find_one({"id": pid, "vendor_id": vid}, {"_id": 0})
+    if not po:
+        raise HTTPException(404, "PO tidak ditemukan atau bukan milik vendor Anda")
+    if user.get("is_pic") and po.get("assigned_pic_id") and po["assigned_pic_id"] != user["id"]:
+        raise HTTPException(403, "PO ini tidak di-assign ke PIC Anda")
+    return po
 
 
 class BidIn(BaseModel):
@@ -145,7 +171,11 @@ async def decline_tender(tid: str, user=Depends(get_current_active_user)):
 async def vendor_pos(user=Depends(get_current_active_user)):
     vid = _require_vendor(user)
     db = get_db()
-    return await db.pos.find({"vendor_id": vid}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    # Only fully approved / sent / completed POs (RFQs are in separate endpoint)
+    q = {"vendor_id": vid, "status": {"$in": ["approved", "sent", "partial", "completed"]}}
+    if user.get("is_pic"):
+        q["assigned_pic_id"] = user["id"]
+    return await db.pos.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
 
 
 @router.get("/vendor-portal/shipments")
