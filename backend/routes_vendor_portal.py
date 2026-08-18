@@ -614,6 +614,92 @@ async def vendor_shipments(user=Depends(get_current_active_user)):
     ).to_list(1000)
 
 
+class ShipmentItemIn(BaseModel):
+    po_item_index: int
+    qty_shipped: float
+
+
+class ShipmentIn(BaseModel):
+    po_id: str
+    tracking_number: Optional[str] = None
+    carrier: Optional[str] = None
+    shipped_date: Optional[str] = None
+    expected_arrival: Optional[str] = None
+    items: List[ShipmentItemIn] = []
+    shipping_cost: Optional[float] = 0
+    shipping_pricelist: Optional[List[dict]] = None
+    currency: Optional[str] = "IDR"
+    notes: Optional[str] = None
+    attachments: Optional[List[dict]] = None
+
+
+@router.get("/vendor-portal/shipments/records")
+async def list_shipment_records(user=Depends(get_current_active_user)):
+    vid = _require_vendor(user)
+    db = get_db()
+    return await db.shipments.find({"vendor_id": vid}, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+
+@router.post("/vendor-portal/shipments")
+async def create_shipment(payload: ShipmentIn, user=Depends(get_current_active_user)):
+    vid = _require_vendor(user)
+    db = get_db()
+    po = await db.pos.find_one({"id": payload.po_id, "vendor_id": vid})
+    if not po:
+        raise HTTPException(404, "PO tidak ditemukan / bukan milik Anda")
+    if not payload.items:
+        raise HTTPException(400, "Minimal 1 item wajib dikirim")
+    po_items = po.get("items") or []
+    line_snapshots: list[dict] = []
+    for it in payload.items:
+        if it.po_item_index < 0 or it.po_item_index >= len(po_items):
+            raise HTTPException(400, f"Item index {it.po_item_index} tidak valid")
+        if it.qty_shipped <= 0:
+            raise HTTPException(400, "Qty shipped harus > 0")
+        p = po_items[it.po_item_index]
+        line_snapshots.append({
+            "po_item_index": it.po_item_index,
+            "product_id": p.get("product_id"),
+            "product_name": p.get("product_name"),
+            "product_code": p.get("product_code"),
+            "qty_shipped": it.qty_shipped,
+            "qty_ordered": p.get("qty"),
+        })
+    pl_total = sum(float((r.get("qty") or 0)) * float(r.get("unit_price") or 0) for r in (payload.shipping_pricelist or []))
+    doc = {
+        "id": new_id(),
+        "shipment_number": gen_number("SHP"),
+        "vendor_id": vid,
+        "vendor_name": user.get("name"),
+        "po_id": payload.po_id,
+        "po_number": po.get("po_number"),
+        "tracking_number": payload.tracking_number,
+        "carrier": payload.carrier,
+        "shipped_date": payload.shipped_date,
+        "expected_arrival": payload.expected_arrival,
+        "items": line_snapshots,
+        "shipping_cost": float(payload.shipping_cost or 0) or pl_total,
+        "shipping_pricelist": payload.shipping_pricelist or [],
+        "currency": payload.currency or "IDR",
+        "notes": payload.notes,
+        "attachments": payload.attachments or [],
+        "status": "in_transit",
+        "created_at": now_iso(),
+        "created_by": user["id"],
+    }
+    await db.shipments.insert_one(doc)
+    all_ship = await db.shipments.find({"po_id": payload.po_id, "status": {"$ne": "cancelled"}}, {"_id": 0, "items": 1}).to_list(500)
+    shipped_by_idx: dict[int, float] = {}
+    for s in all_ship:
+        for li in (s.get("items") or []):
+            idx = int(li.get("po_item_index", -1))
+            shipped_by_idx[idx] = shipped_by_idx.get(idx, 0.0) + float(li.get("qty_shipped") or 0)
+    total_remaining = sum(max(0, float(it.get("qty") or 0) - shipped_by_idx.get(i, 0.0)) for i, it in enumerate(po_items))
+    ship_status = "in_transit" if total_remaining <= 1e-6 else "partial"
+    await db.pos.update_one({"id": payload.po_id}, {"$set": {"shipping_status": ship_status}})
+    return clean(doc)
+
+
 @router.get("/vendor-portal/invoices")
 async def vendor_invoices(user=Depends(get_current_active_user)):
     vid = _require_vendor(user)

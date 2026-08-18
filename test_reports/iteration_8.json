@@ -1,0 +1,22 @@
+{
+  "summary": "Iteration 8: Verified vendor-portal shipment 404 fix. Backend pytest (8/8 pass) covers records list, pending POs list, admin-forbidden, item_index/qty validation, non-owned PO 404, empty items 400, and shipping_cost fallback to pricelist sum. Frontend Playwright confirms /vendor/shipments loads clean (no red 404 AxiosError overlay), both 'PO yang perlu dikirim' and 'Riwayat Pengiriman' tables render, SHP-20260818-F4F13 present, 'Buat Pengiriman' dialog opens with all vsh-* testids, submit creates shipment (records grew 2→3, new SHP-20260818-5D7E3 visible).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration8_shipment.py",
+    "/app/test_reports/pytest/iter8_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes_vendor_portal.py L668: shipping_cost fallback uses `float(payload.shipping_cost or 0) or pl_total` — works but be aware that an explicit 0 with a non-empty pricelist will always be overridden by pl_total (documented behavior per task, but could surprise if a vendor genuinely wants free shipping with a pricelist for record only).",
+    "VendorShipments dialog: qty inputs are disabled unless the item checkbox is toggled — good UX, but there is no visible validation message when user submits with 0 active items (backend responds 400 which surfaces as axios toast — acceptable)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration8_shipment.py"],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (all critical flows)"},
+  "test_credentials": "admin: mahrozapradana46@gmail.com/admin123; vendor: test_vendor_423f4216@example.com/vendor123",
+  "seed_data_creation": "Created 2 test shipments during testing: one via pytest (SHP with shipping_cost=25000 via pricelist fallback) and one via Playwright UI (SHP-20260818-5D7E3 with JNE-UI carrier/UI-ITER8-FINAL tracking). Both persist against PO-20260818-7CDE6.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Vendor portal /vendor/shipments is now stable. Records for test vendor now include multiple SHP-* entries; next testers should not rely on record count == 1. All vsh-* data-testids present and working. Backend endpoints: GET/POST /api/vendor-portal/shipments, GET /api/vendor-portal/shipments/records — all 200 for vendor role, forbidden for admin.",
+  "rca of the issue": "Prior 404 was caused by missing FastAPI route handlers for GET /vendor-portal/shipments/records and POST /vendor-portal/shipments — a silent search_replace failure meant the intended insertion never landed in routes_vendor_portal.py. Fix (already applied by main agent) re-inserted both handlers adjacent to the existing GET /vendor-portal/shipments. Regression coverage added via /app/backend/tests/test_iteration8_shipment.py so a future silent no-op edit will be detected by the 200-status assertions."
+}
