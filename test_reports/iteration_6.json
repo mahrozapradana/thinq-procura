@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 6 e-Procurement testing (both backend + frontend). Backend pytest: 15 passed, 1 skipped (no approved vendor with `code` field for bulk-import happy path). All 6 features work end-to-end: (a) Invoice filter+search+group-by, (b) Mandatory Faktur Pajak + BAST enforcement (400 with proper Indonesian error message), (c) Line-item validation (qty > remaining, invalid item_index, zero qty all rejected), (d) Invoice PDF export (branded PDF, 4-byte %PDF header verified, 404 on missing), (e) Bulk PO Import (endpoint parses CSV, groups by vendor/type/currency, returns created+errors, vendor role forbidden), (f) Cheapest verified pricelist (only_verified filter respected, shape stable when empty). Playwright verified: vendor invoices toolbar (vi-search+vi-groupby show grouped section headers with counts), invoice creation dialog with faktur/bast/attachment uploads and line-item picker, admin /invoices inv-groupby + per-row invoice-pdf-<id> buttons (3 buttons for 3 invoices), /po Bulk Import dialog with po-bulk-file drag-drop and po-bulk-result showing errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "VendorInvoices (VendorPortal.jsx)", "issue": "React warning: 'Each child in a list should have a unique key prop'. Group header rendering likely uses index-based key or duplicates. Not blocking but pollutes console.", "selector": "VendorInvoices grouped render", "priority": "LOW"},
+      {"component": "InvoicesFinance.jsx", "issue": "Same 'unique key prop' React warning during grouped rendering.", "selector": "InvoicesFinance grouped render", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/invoices (Admin, dark mode)", "issues": ["Data row cells (invoice number, PO, vendor, amount) have very low contrast — appear almost invisible against dark background. Only group headers and status badges are readable in dark mode."]},
+      {"screen": "/po (Admin, dark mode)", "issues": ["PO number / total / vendor cells also barely visible in dark mode — same low-contrast text color."]},
+      {"screen": "Ajukan Invoice dialog (vendor)", "issues": ["Radix DialogContent missing `aria-describedby` / Description — a11y warning. No visible red asterisk near NOMOR FAKTUR PAJAK to indicate wajib field; only 'Faktur Pajak (wajib PDF)*' upload label has the star."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration6_features.py",
+    "/app/test_reports/pytest/iter6_results.xml"
+  ],
+  "action_items": [
+    "Fix low-contrast text on data rows in /invoices and /po grouped tables under dark mode (add explicit text-slate-100 or similar).",
+    "Fix React 'unique key' warning in VendorInvoices.jsx and InvoicesFinance.jsx grouped rendering (make sure group header + data row keys are distinct, e.g. `hdr-${g}` vs `row-${i.id}`).",
+    "Add DialogDescription to Ajukan Invoice dialog for a11y (or `aria-describedby`).",
+    "(Optional) Seed at least one approved vendor with a non-empty `code` so bulk-import happy-path test doesn't skip."
+  ],
+  "critical_code_review_comments": [
+    "routes_invoice_extras.py bulk-import: rows list uses `_csv.DictReader` which won't strip BOM if 'utf-8-sig' fails; currently OK. Good.",
+    "routes_vendor_portal.py submit_invoice: `payload.amount` is server-recomputed as `computed_amount`, but the doc stores `payload.amount or computed_amount` — allows client to override. Consider always storing `computed_amount` as canonical `amount` to prevent client tampering.",
+    "InvoicesFinance.jsx (line 71) uses shadcn Select for group-by; page also mixes native `<select>` elsewhere — visible on the dark screenshot as unstyled dropdown. Consistency fix recommended.",
+    "VendorPortal.jsx line 817 filters PO list by ['sent','completed','partial','approved'] — but PO with `status='partial'` may not exist (partial is `invoice_status`). Confirm that fresh POs available for invoice creation aren't filtered out."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "95%"},
+  "test_credentials": "Admin: mahrozapradana46@gmail.com/admin123; Vendor: test_vendor_423f4216@example.com/vendor123",
+  "seed_data_creation": "None persistent. Test created & cleaned up TEST_iter6 pricelists.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Bulk-import happy-path skipped due to no approved vendor having `code` field populated — either seed one or ignore. All 6 iteration-6 features functionally correct. Dark-mode contrast + React key warnings are the only remaining polish items. Existing test PO ff247e59 is now `partial`; billing-status returns remaining < ordered as expected."
+}

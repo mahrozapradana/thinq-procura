@@ -8,7 +8,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Merge, Check, X, Eye, Send, Download, Star, Printer, MessageSquare } from "lucide-react";
+import { Merge, Check, X, Eye, Send, Download, Star, Printer, MessageSquare, FileUp, Upload } from "lucide-react";
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 async function downloadReport(path, filename) {
@@ -39,6 +39,9 @@ export default function PurchaseOrders() {
   const [vendors, setVendors] = useState([]);
   const [detail, setDetail] = useState(null);
   const [mergeOpen, setMergeOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
   const [selected, setSelected] = useState({});
   const [form, setForm] = useState({ po_type: "LOCAL", tax_percent: 11, projects: [], tax_ids: [], currency: "IDR", exchange_rate: 1 });
   const [taxes, setTaxes] = useState([]);
@@ -46,6 +49,21 @@ export default function PurchaseOrders() {
   const [companyRates, setCompanyRates] = useState({});
   const [rating, setRating] = useState(0);
   const [ratingNote, setRatingNote] = useState("");
+
+  const bulkImport = async (file) => {
+    setBulkUploading(true); setBulkResult(null);
+    try {
+      const fd = new FormData(); fd.append("file", file);
+      const t = localStorage.getItem("access_token");
+      const r = await fetch(`${API_URL}/api/pos/bulk-import`, { method:"POST", credentials:"include", headers: t?{Authorization:`Bearer ${t}`}:{}, body: fd });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || "Import gagal");
+      setBulkResult(d);
+      toast.success(`Berhasil buat ${d.created_count} PO dari ${d.total_rows} baris`);
+      load();
+    } catch(e){ toast.error(e.message); }
+    finally { setBulkUploading(false); }
+  };
 
   const load = () => {
     api.get(`/pos?page=${page}&page_size=20&q=${encodeURIComponent(q)}`).then(r=>{ setPos(r.data.items); setTotal(r.data.total); setPages(r.data.pages); });
@@ -110,6 +128,7 @@ export default function PurchaseOrders() {
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={()=>downloadReport("/reports/pos.csv","purchase_orders.csv")} data-testid="po-export-csv"><Download size={14}/> CSV</Button>
           <Button variant="outline" size="sm" onClick={()=>downloadReport("/reports/pos.pdf","purchase_orders.pdf")} data-testid="po-export-pdf"><Download size={14}/> PDF</Button>
+          <Button variant="outline" onClick={()=>{ setBulkOpen(true); setBulkResult(null); }} data-testid="po-bulk-btn"><FileUp size={14}/> Bulk Import</Button>
           <Button onClick={()=>setMergeOpen(true)} data-testid="po-merge-btn"><Merge size={14}/> Merge PR → PO</Button>
         </div>
       </div>
@@ -148,6 +167,36 @@ export default function PurchaseOrders() {
           </tbody>
         </table>
       </div>
+
+      {/* Bulk Import Dialog */}
+      <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Bulk Import PO dari CSV/XLSX</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="text-xs bg-blue-50 border border-blue-200 rounded p-3">
+              <b>Format:</b> kolom wajib <code>vendor_code, product_code, qty, price</code>. Opsional: <code>po_type</code> (LOCAL|BONDED), <code>currency</code>, <code>delivery_date</code>, <code>notes</code>.
+              Baris dengan <code>vendor_code + po_type + currency</code> yang sama akan digabung ke 1 PO.
+            </div>
+            <label className="cursor-pointer block border-2 border-dashed border-slate-300 rounded p-6 text-center hover:bg-slate-50">
+              <input type="file" className="hidden" accept=".csv,.xlsx,.xls" onChange={e=>{const f=e.target.files?.[0];if(f){bulkImport(f); e.target.value="";}}} disabled={bulkUploading} data-testid="po-bulk-file"/>
+              <Upload size={20} className="mx-auto mb-1 text-slate-400"/>
+              <div className="text-sm">{bulkUploading?"Mengupload...":"Klik atau drop file CSV / XLSX"}</div>
+            </label>
+            {bulkResult && (
+              <div className="text-xs" data-testid="po-bulk-result">
+                <div className="font-semibold text-emerald-700">✓ {bulkResult.created_count} PO dibuat dari {bulkResult.total_rows} baris</div>
+                {(bulkResult.created||[]).length > 0 && <div className="mt-1 border border-slate-200 rounded p-2 bg-slate-50">
+                  {bulkResult.created.map((c,i)=><div key={i} className="font-mono text-[11px]">{c.po_number} — {c.items} item, total {fmtIDR(c.total)}</div>)}
+                </div>}
+                {(bulkResult.errors||[]).length > 0 && <div className="mt-1 text-red-600">Errors: {bulkResult.errors.length}
+                  <ul className="pl-4 list-disc">{bulkResult.errors.slice(0,5).map((e,i)=><li key={i}>Row {e.row}: {e.error}</li>)}</ul>
+                </div>}
+              </div>
+            )}
+          </div>
+          <DialogFooter><Button variant="outline" onClick={()=>setBulkOpen(false)}>Tutup</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Merge Dialog */}
       <Dialog open={mergeOpen} onOpenChange={setMergeOpen}>

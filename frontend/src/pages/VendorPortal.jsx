@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { Fragment, useEffect, useState } from "react";
 import api, { fmtIDR } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -711,8 +711,12 @@ export function VendorInvoices() {
   const [pos, setPos] = useState([]);
   const [ls, setLs] = useState([]);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({});
+  const [form, setForm] = useState({ line_items: [], attachments: [] });
   const [detailId, setDetailId] = useState(null);
+  const [billing, setBilling] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [groupBy, setGroupBy] = useState("none");
+  const [search, setSearch] = useState("");
 
   const load = () => {
     api.get("/vendor-portal/invoices").then(r=>setRows(r.data));
@@ -721,56 +725,251 @@ export function VendorInvoices() {
   };
   useEffect(()=>{ load(); },[]);
 
-  const submit = async () => {
-    try { await api.post("/vendor-portal/invoices", { ...form, amount: parseFloat(form.amount||0) });
-      toast.success("Invoice disubmit"); setOpen(false); setForm({}); load();
-    } catch(e){ toast.error(e.response?.data?.detail); }
+  const uploadFile = async (file, kind) => {
+    setUploading(true);
+    try {
+      const fd = new FormData(); fd.append("file", file);
+      const t = localStorage.getItem("epr-token");
+      const r = await fetch(`${API_URL}/api/uploads/attachment`, { method:"POST", credentials:"include", headers: t?{Authorization:`Bearer ${t}`}:{}, body: fd });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail);
+      if (kind === "faktur") setForm(p=>({...p, faktur_pajak_url:d.url, faktur_pajak_filename:d.filename}));
+      else if (kind === "bast") setForm(p=>({...p, bast_url:d.url, bast_filename:d.filename}));
+      else setForm(p=>({...p, attachments: [...(p.attachments||[]), { url:d.url, filename:d.filename, size:d.size, content_type:d.content_type, kind:"supporting" }]}));
+      toast.success(`${file.name} terunggah`);
+    } catch(e){ toast.error(e.message); }
+    finally { setUploading(false); }
   };
+  const rmAttach = (i) => setForm(p=>({...p, attachments: (p.attachments||[]).filter((_,idx)=>idx!==i)}));
+
+  const pickPO = async (poId) => {
+    setForm(p=>({...p, po_id: poId, line_items: []}));
+    try {
+      const r = await api.get(`/vendor-portal/pos/${poId}/billing-status`);
+      setBilling(r.data);
+    } catch(e){ toast.error(e.response?.data?.detail); setBilling(null); }
+  };
+  const toggleLine = (item) => {
+    setForm(p => {
+      const existing = (p.line_items||[]).find(x => x.po_item_index === item.item_index);
+      if (existing) return { ...p, line_items: p.line_items.filter(x => x.po_item_index !== item.item_index) };
+      return { ...p, line_items: [...(p.line_items||[]), { po_item_index: item.item_index, qty_billed: item.qty_remaining, unit_price: item.price, discount_amount: 0 }] };
+    });
+  };
+  const updateLine = (idx, key, val) => {
+    setForm(p => ({...p, line_items: p.line_items.map(li => li.po_item_index===idx ? {...li, [key]: val} : li)}));
+  };
+  const computedAmount = (form.line_items||[]).reduce((s,li)=>s + Math.max(0, parseFloat(li.unit_price||0) * parseFloat(li.qty_billed||0) - parseFloat(li.discount_amount||0)), 0);
+
+  const submit = async () => {
+    try {
+      if (!form.po_id) return toast.error("Pilih PO");
+      if (!form.faktur_pajak_url) return toast.error("Faktur Pajak wajib diupload");
+      if (!form.bast_url) return toast.error("BAST wajib diupload");
+      if (!form.line_items?.length) return toast.error("Pilih minimal satu item yang ditagih");
+      await api.post("/vendor-portal/invoices", {
+        ...form,
+        amount: computedAmount,
+        line_items: form.line_items.map(li => ({
+          po_item_index: li.po_item_index,
+          qty_billed: parseFloat(li.qty_billed),
+          unit_price: parseFloat(li.unit_price||0),
+          discount_amount: parseFloat(li.discount_amount||0),
+          notes: li.notes,
+        })),
+      });
+      toast.success("Invoice tersubmit");
+      setOpen(false); setForm({ line_items:[], attachments:[] }); setBilling(null); load();
+    } catch(e) { toast.error(e.response?.data?.detail || "Gagal"); }
+  };
+
+  const filtered = rows.filter(i => {
+    if (!search) return true;
+    const s = search.toLowerCase();
+    return (i.invoice_number||"").toLowerCase().includes(s) || (i.po_number||"").toLowerCase().includes(s) || (i.status||"").toLowerCase().includes(s);
+  });
+  const grouped = (() => {
+    if (groupBy === "none") return { "": filtered };
+    const g = {};
+    for (const i of filtered) {
+      let k = "-";
+      if (groupBy === "status") k = i.status || "-";
+      else if (groupBy === "po") k = i.po_number || "-";
+      else if (groupBy === "month") k = (i.created_at||"").slice(0,7) || "-";
+      else if (groupBy === "currency") k = i.currency || "IDR";
+      (g[k] = g[k] || []).push(i);
+    }
+    return g;
+  })();
 
   return (
     <div className="space-y-4" data-testid="vendor-invoices">
       <div className="flex justify-between items-end">
         <h1 className="font-heading text-3xl font-bold tracking-tight">Penagihan / Invoice</h1>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(v)=>{ setOpen(v); if(!v){ setForm({line_items:[],attachments:[]}); setBilling(null);} }}>
           <DialogTrigger asChild><Button data-testid="vi-add-btn"><Plus size={14}/> Ajukan Invoice</Button></DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader><DialogTitle>Ajukan Penagihan</DialogTitle></DialogHeader>
             <div className="space-y-3">
               <div><Label className="label-tiny">PO *</Label>
-                <Select value={form.po_id||""} onValueChange={v=>setForm({...form,po_id:v})}>
+                <Select value={form.po_id||""} onValueChange={pickPO}>
                   <SelectTrigger data-testid="vi-po"><SelectValue placeholder="-"/></SelectTrigger>
                   <SelectContent>{pos.filter(p=>["sent","completed","partial","approved"].includes(p.status)).map(p=><SelectItem key={p.id} value={p.id}>{p.po_number} — {fmtIDR(p.total)}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <div><Label className="label-tiny">Amount</Label><Input type="number" value={form.amount||""} onChange={e=>setForm({...form,amount:e.target.value})} data-testid="vi-amount"/></div>
-              <div><Label className="label-tiny">Due Date</Label><Input type="date" value={form.due_date||""} onChange={e=>setForm({...form,due_date:e.target.value})} data-testid="vi-due"/></div>
-              <div><Label className="label-tiny">LS Document (opsional)</Label>
-                <Select value={form.ls_document_id||""} onValueChange={v=>setForm({...form,ls_document_id:v||null})}>
-                  <SelectTrigger data-testid="vi-ls"><SelectValue placeholder="-"/></SelectTrigger>
-                  <SelectContent>{ls.map(l=><SelectItem key={l.id} value={l.id}>{l.reference_number}</SelectItem>)}</SelectContent>
-                </Select>
+              {billing && (
+                <div>
+                  <Label className="label-tiny">Item yang Ditagih (checklist + isi qty; qty tidak boleh melebihi sisa)</Label>
+                  <div className="border border-slate-200 rounded overflow-x-auto max-h-64 mt-1">
+                    <table className="data-table">
+                      <thead><tr><th></th><th>Produk</th><th className="text-right">Qty PO</th><th className="text-right">Terbayar</th><th className="text-right">Sisa</th><th className="text-right">Qty Tagih</th><th className="text-right">Harga</th><th className="text-right">Diskon</th><th className="text-right">Subtotal</th></tr></thead>
+                      <tbody>
+                        {billing.items.map(it => {
+                          const line = (form.line_items||[]).find(x=>x.po_item_index===it.item_index);
+                          const active = !!line;
+                          const disabled = it.qty_remaining <= 0;
+                          const sub = active ? Math.max(0, parseFloat(line.unit_price||0)*parseFloat(line.qty_billed||0) - parseFloat(line.discount_amount||0)) : 0;
+                          return (
+                            <tr key={it.item_index} className={disabled?"opacity-40":active?"bg-emerald-50/40":""} data-testid={`vi-line-${it.item_index}`}>
+                              <td><input type="checkbox" checked={active} disabled={disabled} onChange={()=>toggleLine(it)} data-testid={`vi-line-chk-${it.item_index}`}/></td>
+                              <td className="text-xs">
+                                <div className="font-semibold">{it.product_name}</div>
+                                {it.product_code && <div className="text-[10px] font-mono text-slate-500">{it.product_code}</div>}
+                              </td>
+                              <td className="text-right">{it.qty_ordered}</td>
+                              <td className="text-right text-slate-500">{it.qty_billed}</td>
+                              <td className={`text-right font-semibold ${it.qty_remaining===0?"text-slate-400":"text-emerald-700"}`} data-testid={`vi-line-rem-${it.item_index}`}>{it.qty_remaining}</td>
+                              <td className="text-right">
+                                <Input type="number" min="0" max={it.qty_remaining} step="0.01" value={line?.qty_billed ?? ""} disabled={!active} onChange={e=>updateLine(it.item_index, "qty_billed", e.target.value)} className="h-8 text-xs w-20 font-mono ml-auto" data-testid={`vi-line-qty-${it.item_index}`}/>
+                              </td>
+                              <td className="text-right">
+                                <Input type="number" min="0" step="0.01" value={line?.unit_price ?? it.price} disabled={!active} onChange={e=>updateLine(it.item_index, "unit_price", e.target.value)} className="h-8 text-xs w-24 font-mono ml-auto"/>
+                              </td>
+                              <td className="text-right">
+                                <Input type="number" min="0" step="0.01" value={line?.discount_amount ?? 0} disabled={!active} onChange={e=>updateLine(it.item_index, "discount_amount", e.target.value)} className="h-8 text-xs w-20 font-mono ml-auto"/>
+                              </td>
+                              <td className="text-right font-mono text-xs font-semibold">{fmtIDR(sub)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-slate-50 font-semibold">
+                          <td colSpan={8} className="text-right">Total Tagihan</td>
+                          <td className="text-right font-mono" data-testid="vi-total">{fmtIDR(computedAmount)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="label-tiny">Nomor Faktur Pajak</Label>
+                  <Input value={form.faktur_pajak_number||""} onChange={e=>setForm({...form, faktur_pajak_number:e.target.value})} data-testid="vi-fp-number"/>
+                </div>
+                <div>
+                  <Label className="label-tiny">Nomor BAST</Label>
+                  <Input value={form.bast_number||""} onChange={e=>setForm({...form, bast_number:e.target.value})} data-testid="vi-bast-number"/>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className={`border border-dashed rounded p-3 ${form.faktur_pajak_url?"bg-emerald-50 border-emerald-300":"bg-slate-50 border-slate-300"}`}>
+                  <Label className="label-tiny">Faktur Pajak (WAJIB PDF)*</Label>
+                  <label className="cursor-pointer block mt-1">
+                    <input type="file" className="hidden" accept=".pdf,.png,.jpg" onChange={e=>{const f=e.target.files?.[0];if(f){uploadFile(f,"faktur"); e.target.value="";}}} disabled={uploading} data-testid="vi-fp-file"/>
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-600 text-white text-xs">
+                      <Upload size={10}/> {form.faktur_pajak_url?"Ganti":"Upload"}
+                    </span>
+                  </label>
+                  {form.faktur_pajak_url && <a href={form.faktur_pajak_url} target="_blank" rel="noreferrer" className="mt-1 block text-[11px] text-blue-700 underline break-all">{form.faktur_pajak_filename}</a>}
+                </div>
+                <div className={`border border-dashed rounded p-3 ${form.bast_url?"bg-emerald-50 border-emerald-300":"bg-slate-50 border-slate-300"}`}>
+                  <Label className="label-tiny">BAST (WAJIB PDF)*</Label>
+                  <label className="cursor-pointer block mt-1">
+                    <input type="file" className="hidden" accept=".pdf,.png,.jpg" onChange={e=>{const f=e.target.files?.[0];if(f){uploadFile(f,"bast"); e.target.value="";}}} disabled={uploading} data-testid="vi-bast-file"/>
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-600 text-white text-xs">
+                      <Upload size={10}/> {form.bast_url?"Ganti":"Upload"}
+                    </span>
+                  </label>
+                  {form.bast_url && <a href={form.bast_url} target="_blank" rel="noreferrer" className="mt-1 block text-[11px] text-blue-700 underline break-all">{form.bast_filename}</a>}
+                </div>
+              </div>
+              <div className="border border-dashed border-slate-300 rounded p-3 bg-slate-50">
+                <div className="flex items-center justify-between mb-1">
+                  <Label className="label-tiny flex items-center gap-1"><Paperclip size={10}/> Dokumen Pendukung (opsional)</Label>
+                  <label className="cursor-pointer">
+                    <input type="file" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f){uploadFile(f,"supporting"); e.target.value="";}}} disabled={uploading} data-testid="vi-att-file"/>
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-200 text-slate-700 text-xs"><Upload size={10}/> Tambah</span>
+                  </label>
+                </div>
+                {(form.attachments||[]).length === 0 ? <div className="text-xs text-slate-400 italic">Belum ada</div> : (
+                  <ul className="space-y-1">
+                    {(form.attachments||[]).map((a,i)=>(
+                      <li key={i} className="flex items-center justify-between text-xs bg-white border border-slate-200 rounded px-2 py-1">
+                        <a href={a.url} target="_blank" rel="noreferrer" className="underline text-blue-700 truncate">{a.filename}</a>
+                        <button onClick={()=>rmAttach(i)} className="text-slate-400 hover:text-red-600"><X size={12}/></button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label className="label-tiny">Due Date</Label><Input type="date" value={form.due_date||""} onChange={e=>setForm({...form,due_date:e.target.value})} data-testid="vi-due"/></div>
+                <div><Label className="label-tiny">LS Document (bonded, opsional)</Label>
+                  <Select value={form.ls_document_id||""} onValueChange={v=>setForm({...form,ls_document_id:v||null})}>
+                    <SelectTrigger data-testid="vi-ls"><SelectValue placeholder="-"/></SelectTrigger>
+                    <SelectContent>{ls.map(l=><SelectItem key={l.id} value={l.id}>{l.reference_number}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
               </div>
               <div><Label className="label-tiny">Catatan</Label><Textarea value={form.notes||""} onChange={e=>setForm({...form,notes:e.target.value})} data-testid="vi-notes"/></div>
             </div>
-            <DialogFooter><Button onClick={submit} data-testid="vi-save">Ajukan</Button></DialogFooter>
+            <DialogFooter><Button onClick={submit} disabled={uploading} data-testid="vi-save">Ajukan Invoice ({fmtIDR(computedAmount)})</Button></DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
+      <div className="flex gap-2 items-center flex-wrap">
+        <Input placeholder="Cari nomor invoice / PO / status..." value={search} onChange={e=>setSearch(e.target.value)} className="max-w-xs" data-testid="vi-search"/>
+        <div className="flex items-center gap-1">
+          <Label className="text-xs text-slate-600">Group by:</Label>
+          <Select value={groupBy} onValueChange={setGroupBy}>
+            <SelectTrigger className="h-8 w-32 text-xs" data-testid="vi-groupby"><SelectValue/></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">— Tanpa —</SelectItem>
+              <SelectItem value="status">Status</SelectItem>
+              <SelectItem value="po">PO</SelectItem>
+              <SelectItem value="month">Bulan</SelectItem>
+              <SelectItem value="currency">Currency</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="text-xs text-slate-500 ml-auto">{filtered.length} invoice</div>
+      </div>
       <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
-          <thead><tr><th>No Invoice</th><th>PO</th><th>Amount</th><th>Due</th><th>Bonded</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>No Invoice</th><th>PO</th><th>Amount</th><th>Due</th><th>Docs</th><th>Bonded</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            {rows.length===0 && <tr><td colSpan={7} className="text-center py-6 text-slate-400">Belum ada invoice</td></tr>}
-            {rows.map(i=>(
-              <tr key={i.id} data-testid={`vi-row-${i.id}`}>
-                <td className="font-mono text-xs">{i.invoice_number}</td>
-                <td className="font-mono text-xs">{i.po_number}</td>
-                <td className="font-mono font-semibold">{fmtIDR(i.amount_total || i.amount)}</td>
-                <td className="text-xs">{i.due_date||"-"}</td>
-                <td>{i.is_bonded?<span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">Bonded</span>:"-"}</td>
-                <td><span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS[i.status]}`}>{i.status}</span></td>
-                <td className="text-right"><button onClick={()=>setDetailId(i.id)} className="p-1 hover:bg-slate-100 rounded" data-testid={`vi-view-${i.id}`}><Eye size={14}/></button></td>
-              </tr>
+            {Object.keys(grouped).length === 0 || filtered.length === 0 ? <tr><td colSpan={8} className="text-center py-6 text-slate-400">Belum ada invoice</td></tr> : Object.entries(grouped).map(([groupKey, invs]) => (
+              <Fragment key={`grp-${groupKey}`}>
+                {groupBy !== "none" && <tr className="bg-slate-100" data-testid={`vi-group-${groupKey}`}><td colSpan={8} className="font-semibold text-xs px-2 py-1 text-slate-700 uppercase">{groupKey} <span className="text-slate-400 font-normal">({invs.length})</span></td></tr>}
+                {invs.map(i => (
+                  <tr key={i.id} data-testid={`vi-row-${i.id}`}>
+                    <td className="font-mono text-xs">{i.invoice_number}</td>
+                    <td className="font-mono text-xs">{i.po_number}</td>
+                    <td className="font-mono font-semibold">{fmtIDR(i.amount_total || i.amount)}</td>
+                    <td className="text-xs">{i.due_date||"-"}</td>
+                    <td className="text-xs">
+                      {i.faktur_pajak_url && <span className="inline-flex items-center gap-0.5 text-[10px] px-1 mr-1 rounded bg-emerald-100 text-emerald-700" title="Faktur Pajak">FP</span>}
+                      {i.bast_url && <span className="inline-flex items-center gap-0.5 text-[10px] px-1 mr-1 rounded bg-blue-100 text-blue-700" title="BAST">BAST</span>}
+                      {(i.attachments||[]).length > 0 && <span className="text-[10px] text-slate-500">+{i.attachments.length}</span>}
+                    </td>
+                    <td>{i.is_bonded?<span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">Bonded</span>:"-"}</td>
+                    <td><span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS[i.status]}`}>{i.status}</span></td>
+                    <td className="text-right"><button onClick={()=>setDetailId(i.id)} className="p-1 hover:bg-slate-100 rounded" data-testid={`vi-view-${i.id}`}><Eye size={14}/></button></td>
+                  </tr>
+                ))}
+              </Fragment>
             ))}
           </tbody>
         </table>

@@ -621,12 +621,97 @@ async def vendor_invoices(user=Depends(get_current_active_user)):
     return await db.invoices.find({"vendor_id": vid}, {"_id": 0}).sort("created_at", -1).to_list(1000)
 
 
+async def _billing_status_for_po(db, pid: str) -> dict:
+    """Compute per-item qty_billed / qty_remaining across all non-cancelled invoices for a PO."""
+    po = await db.pos.find_one({"id": pid}, {"_id": 0})
+    if not po:
+        return None  # type: ignore
+    items_out: list[dict] = []
+    invoices = await db.invoices.find(
+        {"po_id": pid, "status": {"$ne": "cancelled"}},
+        {"_id": 0, "line_items": 1, "invoice_number": 1, "id": 1, "created_at": 1},
+    ).to_list(500)
+    billed_by_index: dict[int, float] = {}
+    for inv in invoices:
+        for li in (inv.get("line_items") or []):
+            idx = int(li.get("po_item_index", -1))
+            if idx >= 0:
+                billed_by_index[idx] = billed_by_index.get(idx, 0.0) + float(li.get("qty_billed") or 0)
+    for i, it in enumerate(po.get("items") or []):
+        qo = float(it.get("qty") or 0)
+        qb = billed_by_index.get(i, 0.0)
+        items_out.append({
+            "item_index": i,
+            "product_id": it.get("product_id"),
+            "product_name": it.get("product_name"),
+            "product_code": it.get("product_code"),
+            "unit": it.get("unit"),
+            "qty_ordered": qo,
+            "qty_billed": qb,
+            "qty_remaining": max(0.0, qo - qb),
+            "price": it.get("price"),
+            "subtotal": it.get("subtotal"),
+        })
+    return {
+        "po_id": pid,
+        "po_number": po.get("po_number"),
+        "vendor_id": po.get("vendor_id"),
+        "currency": po.get("currency") or "IDR",
+        "items": items_out,
+        "invoice_count": len(invoices),
+    }
+
+
+@router.get("/vendor-portal/pos/{pid}/billing-status")
+async def vendor_billing_status(pid: str, user=Depends(get_current_active_user)):
+    vid = _require_vendor(user)
+    db = get_db()
+    po = await db.pos.find_one({"id": pid, "vendor_id": vid}, {"_id": 0, "id": 1})
+    if not po:
+        raise HTTPException(404, "PO tidak ditemukan atau bukan milik Anda")
+    result = await _billing_status_for_po(db, pid)
+    return result
+
+
+@router.get("/pos/{pid}/billing-status")
+async def admin_billing_status(pid: str, user=Depends(get_current_active_user)):
+    db = get_db()
+    result = await _billing_status_for_po(db, pid)
+    if result is None:
+        raise HTTPException(404, "PO tidak ditemukan")
+    return result
+
+
+class InvoiceLineItemIn(BaseModel):
+    po_item_index: int
+    qty_billed: float
+    unit_price: Optional[float] = None
+    discount_amount: Optional[float] = 0
+    notes: Optional[str] = None
+
+
+class InvoiceAttachmentIn(BaseModel):
+    url: str
+    filename: str
+    size: Optional[int] = None
+    content_type: Optional[str] = None
+    kind: Optional[str] = "supporting"  # 'faktur_pajak' | 'bast' | 'supporting'
+
+
 class InvoiceIn(BaseModel):
     po_id: str
     amount: float
     due_date: Optional[str] = None
     notes: Optional[str] = None
     ls_document_id: Optional[str] = None
+    line_items: List[InvoiceLineItemIn] = []
+    faktur_pajak_url: Optional[str] = None
+    faktur_pajak_filename: Optional[str] = None
+    faktur_pajak_number: Optional[str] = None
+    bast_url: Optional[str] = None
+    bast_filename: Optional[str] = None
+    bast_number: Optional[str] = None
+    attachments: List[InvoiceAttachmentIn] = []
 
 
 @router.post("/vendor-portal/invoices")
@@ -636,6 +721,46 @@ async def submit_invoice(payload: InvoiceIn, user=Depends(get_current_active_use
     po = await db.pos.find_one({"id": payload.po_id})
     if not po:
         raise HTTPException(404, "PO not found")
+    if po.get("vendor_id") != vid:
+        raise HTTPException(403, "PO bukan milik Anda")
+    # Faktur Pajak & BAST wajib
+    if not payload.faktur_pajak_url:
+        raise HTTPException(400, "Faktur Pajak wajib diupload")
+    if not payload.bast_url:
+        raise HTTPException(400, "BAST (Berita Acara Serah Terima) wajib diupload")
+    if not payload.line_items:
+        raise HTTPException(400, "Pilih minimal satu item PO yang akan ditagihkan")
+    # Validate qty against remaining
+    billing = await _billing_status_for_po(db, payload.po_id)
+    remaining_by_idx = {it["item_index"]: it["qty_remaining"] for it in (billing.get("items") or [])}
+    po_items = po.get("items") or []
+    line_snapshots: list[dict] = []
+    computed_amount = 0.0
+    for li in payload.line_items:
+        idx = li.po_item_index
+        if idx < 0 or idx >= len(po_items):
+            raise HTTPException(400, f"Item index {idx} tidak valid")
+        rem = float(remaining_by_idx.get(idx, 0) or 0)
+        if li.qty_billed <= 0:
+            raise HTTPException(400, f"Qty untuk item {idx} harus > 0")
+        if li.qty_billed > rem + 1e-6:
+            raise HTTPException(400, f"Qty tagih {li.qty_billed} melebihi sisa {rem} pada item '{po_items[idx].get('product_name')}'")
+        po_it = po_items[idx]
+        unit_price = float(li.unit_price if li.unit_price is not None else po_it.get("price") or 0)
+        disc = float(li.discount_amount or 0)
+        subtotal = max(0.0, unit_price * li.qty_billed - disc)
+        computed_amount += subtotal
+        line_snapshots.append({
+            "po_item_index": idx,
+            "product_id": po_it.get("product_id"),
+            "product_name": po_it.get("product_name"),
+            "product_code": po_it.get("product_code"),
+            "qty_billed": li.qty_billed,
+            "unit_price": unit_price,
+            "discount_amount": disc,
+            "subtotal": subtotal,
+            "notes": li.notes,
+        })
     doc = {
         "id": new_id(),
         "invoice_number": gen_number("INV"),
@@ -643,14 +768,23 @@ async def submit_invoice(payload: InvoiceIn, user=Depends(get_current_active_use
         "vendor_name": po.get("vendor_name"),
         "po_id": payload.po_id,
         "po_number": po.get("po_number"),
-        "amount": payload.amount,
+        "amount": computed_amount,  # always trust server-computed to prevent client tampering
+        "declared_amount": payload.amount,
+        "computed_amount": computed_amount,
         "status": "outstanding",
         "due_date": payload.due_date,
         "notes": payload.notes,
         "ls_document_id": payload.ls_document_id,
         "is_bonded": po.get("po_type") == "BONDED",
-        # Snapshot from PO for invoice detail view
-        "items": po.get("items") or [],
+        "line_items": line_snapshots,
+        "items": po.get("items") or [],  # keep PO snapshot for legacy detail view
+        "faktur_pajak_url": payload.faktur_pajak_url,
+        "faktur_pajak_filename": payload.faktur_pajak_filename,
+        "faktur_pajak_number": payload.faktur_pajak_number,
+        "bast_url": payload.bast_url,
+        "bast_filename": payload.bast_filename,
+        "bast_number": payload.bast_number,
+        "attachments": [a.model_dump() for a in payload.attachments],
         "untaxed_amount": po.get("untaxed_amount") or po.get("total") or 0,
         "tax_breakdown": po.get("tax_breakdown") or [],
         "taxes_snapshot": po.get("taxes_snapshot") or [],
@@ -658,11 +792,15 @@ async def submit_invoice(payload: InvoiceIn, user=Depends(get_current_active_use
         "amount_total": po.get("amount_total") or po.get("total") or 0,
         "currency": po.get("currency") or "IDR",
         "exchange_rate": po.get("exchange_rate") or 1.0,
-        "vendor_reply": po.get("vendor_reply"),  # includes any per-item discount
+        "vendor_reply": po.get("vendor_reply"),
         "created_at": now_iso(),
     }
     await db.invoices.insert_one(doc)
-    await db.pos.update_one({"id": payload.po_id}, {"$set": {"invoice_status": "submitted"}})
+    # Determine PO invoice status: if all items fully billed → 'complete', else 'partial'
+    fresh_billing = await _billing_status_for_po(db, payload.po_id)
+    remaining = sum(it.get("qty_remaining", 0) for it in (fresh_billing.get("items") or []))
+    inv_status = "complete" if remaining <= 1e-6 else "partial"
+    await db.pos.update_one({"id": payload.po_id}, {"$set": {"invoice_status": inv_status}})
     return clean(doc)
 
 

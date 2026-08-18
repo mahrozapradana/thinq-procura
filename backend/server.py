@@ -43,6 +43,7 @@ from routes_vendor_suggest import router as vsuggest_router
 from routes_fx import router as fx_router
 from routes_digest import router as digest_router
 from routes_dns_wizard import router as dns_wizard_router
+from routes_invoice_extras import router as invoice_extras_router
 from routes_ab_analytics import router as ab_router
 from routes_import import router as import_router
 
@@ -152,6 +153,7 @@ app.include_router(digest_router)
 app.include_router(dns_wizard_router)
 app.include_router(ab_router)
 app.include_router(import_router)
+app.include_router(invoice_extras_router)
 
 
 # ---------- CORS ----------

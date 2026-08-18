@@ -491,3 +491,21 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - P2: Add shared-secret X-Cron-Secret header to unauthenticated cron endpoints
 - P2: Vendor pricelist bulk export back to CSV for round-trip editing
 - P3: Radix a11y polish, chart mobile responsiveness
+
+## Iteration 27 – 2026-02-18 (Invoice Partial Billing, Doc Uploads, Filter/Group, PDF Export, Bulk PO Import, Verified Suggestion)
+### Added
+- **Invoice Partial Billing (`line_items`)**: Vendor picks which PO items to bill + qty (max = remaining). Backend endpoints `GET /api/{vendor-portal,}/pos/{pid}/billing-status` return per-item `qty_ordered/qty_billed/qty_remaining`. Invoice submit validates + snapshots per-line unit_price/discount/subtotal. PO `invoice_status` auto-transitions to `partial` or `complete` based on remaining qty.
+- **Mandatory Docs on Invoice**: `InvoiceIn` extended with `faktur_pajak_url/filename/number`, `bast_url/filename/number`, `attachments[]` (kind: 'supporting'). Backend rejects with 400 if faktur_pajak or bast missing.
+- **Invoice Detail Sheet Redesign**: Faktur Pajak card + BAST card + supporting attachments list + `line_items` table with qty_billed and per-line discount + tax breakdown + Grand Total + **Export PDF button** (`invd-pdf-btn`).
+- **Invoice PDF Export**: New `routes_invoice_extras.py` → `GET /api/invoices/{iid}/pdf` — ReportLab branded PDF with header, meta grid, items table, tax breakdown, totals, and attached-docs listing. Accessible to admin/finance and to the owning vendor.
+- **Filter + Search + Group By**: Vendor & Admin invoice pages both have search box + Group by dropdown (status/vendor|po/month/currency). Grouped rendering shows section header + subtotal per group. Admin also has per-row Download PDF icon.
+- **Bulk PO Import**: `POST /api/pos/bulk-import` — CSV/XLSX with `vendor_code,product_code,qty,price` (+opt `po_type,currency,delivery_date,notes`). Rows grouped by (vendor,po_type,currency) into separate POs. Response `{created_count, created[], errors[], total_rows}`. Admin UI: 'Bulk Import' button + drag-drop dialog with result panel.
+- **Verified-Only Cheapest Pricelist**: `GET /api/pricelists/cheapest?product_id=X&only_verified=true` — returns cheapest vendor pricelist (default filters to verified only). Ready for PR builder integration.
+### Verified via curl
+- Billing status: `remaining` computed correctly. `Faktur Pajak wajib` 400 when missing. Full invoice with all docs succeeds. PDF export returns valid 3KB PDF. Cheapest pricelist filter=verified returns proper data.
+### Backlog / Next
+- P1: Wire cheapest-verified suggestion into PR builder UI (auto-fill unit_price)
+- P1: Show "verified vendor" badge next to suggested price in PR
+- P2: Bulk PO import allow specifying tax_ids per group
+- P2: Invoice reminder email cron for overdue invoices
+- P3: Invoice audit trail (who created/paid/cancelled)
