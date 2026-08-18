@@ -137,6 +137,30 @@ async def vendor_unread_counts(user=Depends(get_current_active_user)):
     return {"rfq": rfq, "po": po_new, "invoice": invoice_out, "tender": tender}
 
 
+@router.get("/internal/unread-counts")
+async def internal_unread_counts(user=Depends(get_current_active_user)):
+    """Sidebar badge counts for internal roles (buyer/admin/procurement/finance/warehouse)."""
+    if user.get("role") == "vendor":
+        raise HTTPException(403, "Internal only")
+    db = get_db()
+    pr_pending = await db.prs.count_documents({"status": "pending_approval"})
+    po_pending = await db.pos.count_documents({"status": "pending_approval"})
+    tender_open = await db.tenders.count_documents({"status": "open"})
+    vendor_pending = await db.vendors.count_documents({"status": "pending"})
+    invoice_outstanding = await db.invoices.count_documents({"status": {"$in": ["outstanding", "pending"]}})
+    customs_draft = await db.customs_docs.count_documents({"status": "draft"}) if "customs_docs" in await db.list_collection_names() else 0
+    receipt_pending = await db.pos.count_documents({"status": "sent", "shipping_status": {"$in": ["waiting_delivery", "in_transit"]}})
+    return {
+        "pr": pr_pending,
+        "po": po_pending,
+        "tender": tender_open,
+        "vendors": vendor_pending,
+        "invoices": invoice_outstanding,
+        "customs": customs_draft,
+        "receipts": receipt_pending,
+    }
+
+
 @router.post("/vendor-portal/pos/{pid}/acknowledge")
 async def vendor_acknowledge_po(pid: str, user=Depends(get_current_active_user)):
     """Vendor confirms receipt of an approved/sent PO."""

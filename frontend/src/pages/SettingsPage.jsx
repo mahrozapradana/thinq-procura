@@ -94,6 +94,20 @@ export default function SettingsPage() {
                 </div>
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="label-tiny">Warna Brand (White-Label)</Label>
+                <div className="flex items-center gap-2">
+                  <input type="color" value={c.brand_color||"#2563EB"} onChange={e=>{ setC({...c, brand_color: e.target.value}); import("@/lib/brand").then(m=>m.applyBrandColor(e.target.value)); }} className="w-16 h-10 rounded cursor-pointer border border-slate-200" data-testid="cs-brand-color"/>
+                  <Input value={c.brand_color||"#2563EB"} onChange={e=>{ setC({...c, brand_color: e.target.value}); if(/^#[0-9a-f]{6}$/i.test(e.target.value)) import("@/lib/brand").then(m=>m.applyBrandColor(e.target.value)); }} placeholder="#2563EB" data-testid="cs-brand-hex" className="font-mono"/>
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">Diterapkan ke seluruh UI: tombol, badge, accent, ring.</div>
+              </div>
+              <div>
+                <Label className="label-tiny">URL Logo (opsional)</Label>
+                <Input value={c.brand_logo_url||""} onChange={e=>setC({...c, brand_logo_url: e.target.value})} placeholder="https://.../logo.png" data-testid="cs-brand-logo"/>
+              </div>
+            </div>
             <div><Label className="label-tiny">Alamat</Label><Textarea value={c.address||""} onChange={e=>setC({...c,address:e.target.value})} data-testid="cs-address"/></div>
             <div className="grid grid-cols-2 gap-3">
               <div>

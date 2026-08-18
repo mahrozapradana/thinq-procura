@@ -24,8 +24,10 @@ class CompanySettingsIn(BaseModel):
     address: Optional[str] = None
     npwp: Optional[str] = None
     email: Optional[str] = None
-    reapproval_threshold_pct: float = 5.0  # % delta harga vendor yang memicu approval ulang
-    exchange_rates: Optional[dict] = None  # {"USD": 15800, "SGD": 11700, "JPY": 105}
+    reapproval_threshold_pct: float = 5.0
+    exchange_rates: Optional[dict] = None
+    brand_color: Optional[str] = None  # hex e.g. #2563EB — used for white-label theming
+    brand_logo_url: Optional[str] = None
 
 
 @router.get("/settings/company")

@@ -1,0 +1,19 @@
+{
+  "short_name": "Procura",
+  "name": "Procura — E-Procurement Suite",
+  "description": "PR/PO, Warehouse, Customs, Vendor Portal — all in one.",
+  "icons": [
+    { "src": "favicon.ico", "sizes": "64x64 32x32 24x24 16x16", "type": "image/x-icon" }
+  ],
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#0F172A",
+  "background_color": "#F8FAFC",
+  "categories": ["business", "productivity"],
+  "shortcuts": [
+    { "name": "Purchase Requests", "url": "/pr", "description": "Buka daftar PR" },
+    { "name": "Purchase Orders", "url": "/po", "description": "Buka daftar PO" }
+  ]
+}

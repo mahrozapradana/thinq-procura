@@ -5,6 +5,7 @@ import { Toaster } from "sonner";
 import NotificationsBell from "@/components/NotificationsBell";
 import ThemeToggle from "@/components/ThemeToggle";
 import api from "@/lib/api";
+import { applyBrandColor } from "@/lib/brand";
 import {
   LayoutDashboard, Package, Building2, Tag, Users, FileText,
   ClipboardList, Gavel, Warehouse, Wallet, Settings, LogOut,
@@ -17,15 +18,20 @@ export default function Layout({ children }) {
   const { user, logout } = useAuth();
   const nav = useNavigate();
   const isVendor = user?.role === "vendor";
-  const [counts, setCounts] = useState({ rfq: 0, po: 0, invoice: 0, tender: 0 });
+  const [counts, setCounts] = useState({ rfq: 0, po: 0, invoice: 0, tender: 0, pr: 0, vendors: 0, invoices: 0, customs: 0, receipts: 0 });
 
   useEffect(() => {
-    if (!isVendor) return;
-    const load = () => api.get("/vendor-portal/unread-counts").then(r => setCounts(r.data)).catch(()=>{});
+    const endpoint = isVendor ? "/vendor-portal/unread-counts" : "/internal/unread-counts";
+    const load = () => api.get(endpoint).then(r => setCounts(prev => ({...prev, ...r.data}))).catch(()=>{});
     load();
     const t = setInterval(load, 30000);
     return () => clearInterval(t);
   }, [isVendor]);
+
+  // Apply tenant brand color from company settings
+  useEffect(() => {
+    api.get("/settings/company").then(r => { if (r.data?.brand_color) applyBrandColor(r.data.brand_color); }).catch(()=>{});
+  }, []);
 
   const Badge = ({ n }) => n > 0 ? <span className="ml-auto text-[10px] min-w-[16px] h-4 px-1 bg-red-500 text-white font-bold rounded-full flex items-center justify-center" data-testid="side-badge">{n > 99 ? "99+" : n}</span> : null;
 
@@ -79,29 +85,29 @@ export default function Layout({ children }) {
               </NavLink>
               <div className="side-group-label">Procurement</div>
               <NavLink to="/pr" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-pr">
-                <ClipboardList size={16}/> Purchase Requests
+                <ClipboardList size={16}/> Purchase Requests<Badge n={counts.pr}/>
               </NavLink>
               <NavLink to="/po" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-po">
-                <FileText size={16}/> Purchase Orders
+                <FileText size={16}/> Purchase Orders<Badge n={counts.po}/>
               </NavLink>
               <NavLink to="/tenders" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-tenders">
-                <Gavel size={16}/> Tender
+                <Gavel size={16}/> Tender<Badge n={counts.tender}/>
               </NavLink>
               <NavLink to="/vendors-mgmt" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-vendors">
-                <Handshake size={16}/> Vendors
+                <Handshake size={16}/> Vendors<Badge n={counts.vendors}/>
               </NavLink>
               <div className="side-group-label">Warehouse</div>
               <NavLink to="/inventory" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-inventory">
-                <Warehouse size={16}/> Penerimaan & Retur
+                <Warehouse size={16}/> Penerimaan & Retur<Badge n={counts.receipts}/>
               </NavLink>
               <NavLink to="/customs" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-customs">
-                <ScrollText size={16}/> Dokumen Impor (BC)
+                <ScrollText size={16}/> Dokumen Impor (BC)<Badge n={counts.customs}/>
               </NavLink>
               <NavLink to="/stock" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-stock">
                 <Package size={16}/> Stok per Lokasi
               </NavLink>
               <NavLink to="/invoices" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-invoices">
-                <Receipt size={16}/> Invoice Finance
+                <Receipt size={16}/> Invoice Finance<Badge n={counts.invoices}/>
               </NavLink>
               <NavLink to="/tax-reports" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-tax-reports">
                 <ScrollText size={16}/> Laporan Pajak

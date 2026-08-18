@@ -336,3 +336,37 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - P3: Custom theme colors per-tenant (untuk white-label enterprise deploy)
 - P4: PWA install prompt supaya app bisa di-install ke home screen mobile
 
+
+## Iteration 18 – 2026-02-18 (Buyer Badges + Auto Dark + PWA + White-Label Theme)
+### Added
+- **Buyer Sidebar Badges**:
+  - `GET /api/internal/unread-counts` returns `{pr, po, tender, vendors, invoices, customs, receipts}` (403 untuk role vendor).
+  - Layout.jsx auto pick endpoint based on `isVendor`, polls 30s.
+  - Red badges di menu: Purchase Requests, Purchase Orders, Tender, Vendors, Penerimaan & Retur, Dokumen Impor (BC), Invoice Finance.
+  - Verified: internal counts `{pr:1, po:1, tender:3, customs:1, receipts:1}` ✓
+- **Auto Dark Mode (prefers-color-scheme)**:
+  - ThemeToggle first-time visit: baca `window.matchMedia('(prefers-color-scheme: dark)')` → set localStorage + flag `epr-theme-inited`.
+  - Listen media query change — follow OS jika user belum manual toggle. Manual toggle → stop follow.
+- **PWA Install**:
+  - `public/manifest.json` — Procura, standalone, shortcuts (PR, PO).
+  - `public/service-worker.js` — cache-first static + network-first navigation, skip `/api/`.
+  - index.html: manifest link, apple meta tags, auto register SW.
+  - Browser Chrome/Edge/Safari otomatis tampil "Add to Home Screen".
+- **Multi-Tenant Theme (White-Label)**:
+  - `CompanySettingsIn.brand_color` + `brand_logo_url` (di company_settings singleton).
+  - `frontend/src/lib/brand.js` — `applyBrandColor(hex)`: convert hex → HSL → set CSS var `--accent`, `--ring`, `--brand`.
+  - Layout mount auto apply brand color dari `/settings/company`.
+  - Settings Company tab: native color picker + hex input dengan live-preview. Verified: brand_color `#0EA5E9` saved ✓
+
+### Verified via curl + Playwright
+- Buyer sidebar: badges "1" di PR/PO/Customs/Receipts + "2" di Tender + "1" bell topbar ✓
+- Settings brand color picker: warna #0EA5E9 dengan live-preview di input ✓
+- Settings di dark mode: sidebar/card/table adaptif ✓
+- PWA files exist: manifest.json (653B) + service-worker.js (1.3KB) ✓
+
+### Backlog / Next
+- P4: Logo upload via Supabase (bukan URL manual)
+- P4: Offline mode enhancements — cache last-viewed PR/PO
+- P4: Multi-brand palette (primary/secondary/tertiary)
+- P5: Custom domain per-tenant + email template branding
+
