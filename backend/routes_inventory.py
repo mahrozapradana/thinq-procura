@@ -18,10 +18,14 @@ class ReceiptItemIn(BaseModel):
     qty_ordered: float
     qty_received: float
     note: Optional[str] = None
+    lot_number: Optional[str] = None  # Support single lot; use lots[] for multi
+    lots: Optional[List[dict]] = None  # [{lot_number, qty, expiry_date, location_id}]
 
 
 class ReceiptIn(BaseModel):
     po_id: str
+    warehouse_id: Optional[str] = None
+    location_id: Optional[str] = None
     items: List[ReceiptItemIn]
     notes: Optional[str] = None
 

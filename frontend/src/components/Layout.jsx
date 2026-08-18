@@ -76,6 +76,9 @@ export default function Layout({ children }) {
               <NavLink to="/inventory" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-inventory">
                 <Warehouse size={16}/> Penerimaan & Retur
               </NavLink>
+              <NavLink to="/customs" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-customs">
+                <ScrollText size={16}/> Dokumen Impor (BC)
+              </NavLink>
               <NavLink to="/invoices" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-invoices">
                 <Receipt size={16}/> Invoice Finance
               </NavLink>

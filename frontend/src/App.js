@@ -14,6 +14,7 @@ import PurchaseOrders from "@/pages/PurchaseOrders";
 import Tenders from "@/pages/Tenders";
 import Inventory from "@/pages/Inventory";
 import VendorsMgmt from "@/pages/VendorsMgmt";
+import CustomsDocuments from "@/pages/CustomsDocuments";
 import InvoicesFinance from "@/pages/InvoicesFinance";
 import SettingsPage from "@/pages/SettingsPage";
 import {
@@ -42,6 +43,7 @@ function App() {
           <Route path="/tenders" element={<ProtectedRoute><Layout><Tenders/></Layout></ProtectedRoute>} />
           <Route path="/vendors-mgmt" element={<ProtectedRoute><Layout><VendorsMgmt/></Layout></ProtectedRoute>} />
           <Route path="/inventory" element={<ProtectedRoute><Layout><Inventory/></Layout></ProtectedRoute>} />
+          <Route path="/customs" element={<ProtectedRoute><Layout><CustomsDocuments/></Layout></ProtectedRoute>} />
           <Route path="/invoices" element={<ProtectedRoute><Layout><InvoicesFinance/></Layout></ProtectedRoute>} />
           <Route path="/masters" element={<ProtectedRoute><Layout><MasterData/></Layout></ProtectedRoute>} />
           <Route path="/budgets" element={<ProtectedRoute><Layout><Budgets/></Layout></ProtectedRoute>} />

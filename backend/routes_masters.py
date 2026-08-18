@@ -24,6 +24,7 @@ class CategoryIn(BaseModel):
     name: str
     code: str
     description: Optional[str] = None
+    parent_id: Optional[str] = None
 
 
 class HSCodeIn(BaseModel):
@@ -32,14 +33,24 @@ class HSCodeIn(BaseModel):
     duty_rate: float = 0.0
 
 
+class ProductVariantIn(BaseModel):
+    sku: str
+    name: str
+    attributes: Optional[dict] = None  # e.g. {"color": "Red", "size": "M"}
+    price: Optional[float] = None
+
+
 class ProductIn(BaseModel):
-    code: str
+    code: str  # SKU parent
+    sku: Optional[str] = None
     name: str
     category_id: Optional[str] = None
     unit: str = "PCS"
     hs_code_id: Optional[str] = None
     default_price: float = 0.0
     description: Optional[str] = None
+    is_lot_tracked: bool = False
+    variants: List[dict] = []
 
 
 class VendorApproveIn(BaseModel):

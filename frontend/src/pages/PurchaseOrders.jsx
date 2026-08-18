@@ -230,6 +230,14 @@ export default function PurchaseOrders() {
                   <div className="p-3 bg-blue-50 border border-blue-200 rounded">
                     <div className="label-tiny text-blue-700">Kepabeanan / Kawasan Berikat</div>
                     <div className="text-sm text-slate-700 mt-1">PO ini termasuk BONDED. Vendor wajib melampirkan dokumen LS & HS Code saat submit invoice.</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {[["bc20","BC 2.0"],["bc23","BC 2.3"],["bc262","BC 2.6.2"],["bc27","BC 2.7"],["bc40","BC 4.0"]].map(([k,label])=>(
+                        <button key={k} onClick={async ()=>{
+                          try { const r = await api.post(`/pos/${detail.id}/create-customs/${k}`); toast.success(`${label} dibuat`); window.location.href = `/customs?edit=${r.data.id}`; }
+                          catch(e){ toast.error(e.response?.data?.detail); }
+                        }} data-testid={`po-create-${k}`} className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded font-semibold hover:bg-blue-700">Buat {label}</button>
+                      ))}
+                    </div>
                   </div>
                 )}
                 {detail.status === "completed" && (
