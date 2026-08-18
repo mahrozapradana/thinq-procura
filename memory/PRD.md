@@ -452,3 +452,25 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - P3: Mongo aggregation for price-suggestions on large history datasets
 - P4: Refactor `server.py` breakdown → routes folder
 
+
+
+## Iteration 25 – 2026-02-18 (Tender Docs, Vendor Pricelists, Bid History, Sealed Bids, Deadline Lock, Draft Reminder)
+### Added
+- **Tender Supporting Docs**: Admin can attach TOR/spec/BOQ/RAB PDF/XLS/DOC (multi-file) when creating tender via `attachments[]` on `TenderIn`. Vendors download via tender detail sheet (`vt-detail-attachments`). New `PUT /api/tenders/{tid}` allows admin edit.
+- **Vendor Pricelist Self-Serve**: New page `/vendor/pricelists` — vendor uploads price per product (currency, min_qty, valid_from/until, optional file). Endpoints: `GET/POST /api/vendor-portal/pricelists`, `DELETE /api/vendor-portal/pricelists/{id}`.
+- **Product Detail (Admin)**: In `/masters` → Products tab, each row has "Harga" button opening a sheet with 2 tabs: "Pricelist Vendor" (all vendor uploads) and "History PO" (past purchase prices w/ avg/min/max cards). Endpoints: `GET /api/products/{pid}/pricelists`, `GET /api/products/{pid}/price-history`.
+- **Bid Version History**: Each vendor bid stores `history: []` — every resubmission pushes previous version (price/delivery/notes/status/submitted_at/items) capped at 20. Timeline mini-view in admin tender detail (`tender-hist-{vid}-{i}`) & vendor detail (`vt-bid-hist-{i}`).
+- **Deadline Lock**: `POST /vendor-portal/tenders/{tid}/bid` rejects with 400 "Deadline tender sudah lewat" once deadline passed. Applies to submit + draft.
+- **Draft Reminder Email (cron)**: New hourly cron `tender-draft-reminders` — finds tenders whose deadline is 12–36h away with any draft bids, emails those vendors. Added to `.emergent/crons.yml`.
+- **Sealed Bid Reveal**: `TenderIn.is_sealed`. When set, `GET /api/tenders/{id}` masks all bid prices (price=null, `_sealed:true`) until admin calls `POST /api/tenders/{id}/reveal` (idempotent, sets `sealed_revealed_at`). Admin UI: purple lock icon on rows, "Buka Amplop" button in detail, banner. Vendor UI: lock banner.
+### Verified
+- Backend: 9/9 pytest (`test_iteration4_features.py`), curl smokes all green
+- Frontend Playwright: 7/7 features verified after JSX merge fix
+### Fixed during iteration
+- JSX merge bug in `VendorPortal.jsx` (VendorPricelists nested inside VendorProfile) auto-fixed by testing agent; `Trash2` import added
+- Reveal endpoint made idempotent (returns `{ok:true, already_revealed:true}` on 2nd call)
+- Sealed & Bonded toggles restructured to 2-line labels for clearer affordance
+### Backlog / Next
+- P2: Split `VendorPortal.jsx` (>1050 lines) into per-page files
+- P2: Add shared-secret header to `/cron/tender-draft-reminders`
+- P3: Radix a11y polish (VisuallyHidden DialogTitle/SheetDescription)

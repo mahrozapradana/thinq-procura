@@ -281,6 +281,9 @@ async def vendor_tender_detail(tid: str, user=Depends(get_current_active_user)):
     my_bid = next((b for b in (t.get("bids") or []) if b.get("vendor_id") == vid), None)
     t.pop("bids", None)
     t["my_bid"] = my_bid
+    # Add sealed indicator for vendor UI
+    if t.get("is_sealed"):
+        t["sealed_revealed"] = bool(t.get("sealed_revealed_at"))
     return t
 
 
@@ -293,7 +296,34 @@ async def submit_bid(tid: str, payload: BidIn, user=Depends(get_current_active_u
         raise HTTPException(404, "Tender not found")
     if t.get("status") != "open":
         raise HTTPException(400, "Tender not open")
+    # Deadline lock — reject once deadline passed (drafts also blocked to avoid last-minute prep loopholes)
+    if t.get("deadline"):
+        try:
+            from datetime import datetime, timezone
+            dl = t["deadline"]
+            dl_dt = datetime.fromisoformat(dl.replace("Z", "+00:00")) if "T" in dl else datetime.fromisoformat(dl + "T23:59:59+00:00")
+            if dl_dt.tzinfo is None:
+                dl_dt = dl_dt.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > dl_dt:
+                raise HTTPException(400, "Deadline tender sudah lewat — bid tidak dapat disubmit")
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # malformed deadline → allow
     bids = t.get("bids", [])
+    prev = next((b for b in bids if b.get("vendor_id") == vid), None)
+    history = list(prev.get("history") or []) if prev else []
+    if prev and prev.get("status") in ("draft", "submitted"):
+        history.append({
+            "price": prev.get("price"),
+            "delivery_days": prev.get("delivery_days"),
+            "notes": prev.get("notes"),
+            "status": prev.get("status"),
+            "submitted_at": prev.get("submitted_at"),
+            "items": prev.get("items") or [],
+        })
+        # cap history to last 20 versions
+        history = history[-20:]
     bids = [b for b in bids if b["vendor_id"] != vid]  # remove old bid
     bids.append({
         "vendor_id": vid,
@@ -305,9 +335,67 @@ async def submit_bid(tid: str, payload: BidIn, user=Depends(get_current_active_u
         "attachments": [a.model_dump() for a in payload.attachments],
         "status": "draft" if payload.is_draft else "submitted",
         "submitted_at": now_iso(),
+        "history": history,
     })
     await db.tenders.update_one({"id": tid}, {"$set": {"bids": bids}})
-    return {"ok": True, "is_draft": payload.is_draft}
+    return {"ok": True, "is_draft": payload.is_draft, "history_count": len(history)}
+
+
+# ---------- Vendor pricelists ----------
+class VendorPricelistIn(BaseModel):
+    product_id: str
+    price: float
+    currency: str = "IDR"
+    min_qty: Optional[float] = 1
+    valid_from: Optional[str] = None
+    valid_until: Optional[str] = None
+    notes: Optional[str] = None
+    file_url: Optional[str] = None
+    filename: Optional[str] = None
+
+
+@router.get("/vendor-portal/pricelists")
+async def list_vendor_pricelists(user=Depends(get_current_active_user)):
+    vid = _require_vendor(user)
+    db = get_db()
+    rows = await db.vendor_pricelists.find({"vendor_id": vid}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    prods = {p["id"]: p async for p in db.products.find({}, {"_id": 0, "id": 1, "name": 1, "code": 1})}
+    for r in rows:
+        p = prods.get(r.get("product_id"))
+        if p:
+            r["product_name"] = p.get("name")
+            r["product_code"] = p.get("code")
+    return rows
+
+
+@router.post("/vendor-portal/pricelists")
+async def create_vendor_pricelist(payload: VendorPricelistIn, user=Depends(get_current_active_user)):
+    vid = _require_vendor(user)
+    db = get_db()
+    prod = await db.products.find_one({"id": payload.product_id}, {"_id": 0, "name": 1})
+    if not prod:
+        raise HTTPException(404, "Produk tidak ditemukan")
+    doc = {
+        "id": new_id(),
+        "vendor_id": vid,
+        "vendor_name": user.get("name"),
+        "product_name": prod.get("name"),
+        "created_at": now_iso(),
+        "created_by": user["id"],
+        **payload.model_dump(),
+    }
+    await db.vendor_pricelists.insert_one(doc)
+    return clean(doc)
+
+
+@router.delete("/vendor-portal/pricelists/{plid}")
+async def delete_vendor_pricelist(plid: str, user=Depends(get_current_active_user)):
+    vid = _require_vendor(user)
+    db = get_db()
+    r = await db.vendor_pricelists.delete_one({"id": plid, "vendor_id": vid})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "Pricelist tidak ditemukan atau bukan milik Anda")
+    return {"ok": True}
 
 
 @router.get("/vendor-portal/tenders/{tid}/price-suggestions")

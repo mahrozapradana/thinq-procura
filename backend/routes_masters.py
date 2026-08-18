@@ -151,6 +151,42 @@ async def list_products(user=Depends(get_current_active_user)):
     return await db.products.find({}, {"_id": 0}).to_list(1000)
 
 
+@router.get("/products/{pid}/pricelists")
+async def product_pricelists(pid: str, user=Depends(get_current_active_user)):
+    """Aggregate vendor-uploaded pricelists for a product (admin/procurement view)."""
+    db = get_db()
+    if not await db.products.find_one({"id": pid}, {"_id": 0, "id": 1}):
+        raise HTTPException(404, "Produk tidak ditemukan")
+    rows = await db.vendor_pricelists.find({"product_id": pid}, {"_id": 0}).sort("price", 1).to_list(500)
+    return rows
+
+
+@router.get("/products/{pid}/price-history")
+async def product_price_history(pid: str, user=Depends(get_current_active_user)):
+    """Historical purchase prices per vendor from approved POs."""
+    db = get_db()
+    if not await db.products.find_one({"id": pid}, {"_id": 0, "id": 1}):
+        raise HTTPException(404, "Produk tidak ditemukan")
+    out = []
+    async for po in db.pos.find(
+        {"items.product_id": pid, "status": {"$in": ["approved", "sent", "partial", "completed"]}},
+        {"_id": 0, "items": 1, "created_at": 1, "po_number": 1, "vendor_id": 1, "vendor_name": 1, "currency": 1},
+    ).sort("created_at", -1).limit(200):
+        for it in (po.get("items") or []):
+            if it.get("product_id") == pid:
+                out.append({
+                    "po_number": po.get("po_number"),
+                    "created_at": po.get("created_at"),
+                    "vendor_id": po.get("vendor_id"),
+                    "vendor_name": po.get("vendor_name"),
+                    "qty": it.get("qty"),
+                    "price": it.get("price"),
+                    "currency": po.get("currency") or "IDR",
+                    "subtotal": it.get("subtotal"),
+                })
+    return out
+
+
 @router.post("/products")
 async def create_product(payload: ProductIn, user=Depends(get_current_active_user)):
     db = get_db()

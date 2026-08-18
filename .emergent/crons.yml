@@ -18,3 +18,9 @@ crons:
     endpoint: "{{BASE_URL}}/api/cron/notification-digest"
     method: GET
     enabled: true
+  - name: tender-draft-reminders
+    description: "Hourly reminder to vendors with draft tender bids expiring in next 12-36h"
+    cron: "0 * * * *"
+    endpoint: "{{BASE_URL}}/api/cron/tender-draft-reminders"
+    method: GET
+    enabled: true

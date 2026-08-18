@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Send, XCircle, Plus, FileUp, Upload, Eye, Clock, Save, Paperclip, X, Info } from "lucide-react";
+import { Send, XCircle, Plus, FileUp, Upload, Eye, Clock, Save, Paperclip, X, Info, Trash2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import Pagination from "@/components/Pagination";
 import ExportCsvButton from "@/components/ExportCsvButton";
@@ -245,7 +245,26 @@ export function VendorTenders() {
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div><div className="label-tiny">Status</div><span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS[detail.status]}`}>{detail.status}</span></div>
                   <div><div className="label-tiny">Deadline</div><Countdown deadline={detail.deadline} size="md"/></div>
+                  {detail.is_sealed && (
+                    <div className="col-span-2 p-2 bg-purple-50 border border-purple-200 rounded text-xs" data-testid="vt-sealed-banner">
+                      🔒 <b>Sealed Bid Tender</b> — harga kompetitor akan disembunyikan hingga panitia membuka amplop di akhir deadline.
+                    </div>
+                  )}
                   <div className="col-span-2"><div className="label-tiny">Deskripsi</div>{detail.description || "-"}</div>
+                  {(detail.attachments||[]).length > 0 && (
+                    <div className="col-span-2" data-testid="vt-detail-attachments">
+                      <div className="label-tiny mb-1">Dokumen Pendukung (dari panitia)</div>
+                      <ul className="space-y-1">
+                        {detail.attachments.map((a,i)=>(
+                          <li key={i} className="flex items-center gap-2 text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1">
+                            <FileUp size={12} className="text-slate-500"/>
+                            <a href={a.url} target="_blank" rel="noreferrer" className="underline text-blue-700 truncate flex-1" data-testid={`vt-detail-doc-${i}`}>{a.filename}</a>
+                            <span className="text-slate-400">{a.size ? `${(a.size/1024).toFixed(1)} KB` : ""}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
                 <div className="border border-slate-200 rounded overflow-x-auto">
                   <table className="data-table">
@@ -258,12 +277,27 @@ export function VendorTenders() {
                   </table>
                 </div>
                 {detail.my_bid && (
-                  <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs">
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs" data-testid="vt-detail-mybid">
                     <b>Bid Anda</b>: Total Rp {(detail.my_bid.price||0).toLocaleString("id-ID")} · {detail.my_bid.delivery_days} hari · Status <b>{detail.my_bid.status}</b>
                     {(detail.my_bid.attachments||[]).length > 0 && (
                       <div className="mt-1">Lampiran: {(detail.my_bid.attachments||[]).map((a,i)=>(
                         <a key={i} href={a.url} target="_blank" rel="noreferrer" className="underline mr-2">{a.filename}</a>
                       ))}</div>
+                    )}
+                    {(detail.my_bid.history||[]).length > 0 && (
+                      <div className="mt-3 border-t border-blue-200 pt-2">
+                        <div className="label-tiny mb-1">Riwayat Revisi Bid ({(detail.my_bid.history||[]).length})</div>
+                        <ol className="relative border-l-2 border-blue-200 ml-1 space-y-2">
+                          {detail.my_bid.history.map((h,i)=>(
+                            <li key={i} className="ml-3 text-[11px]" data-testid={`vt-bid-hist-${i}`}>
+                              <div className="absolute -left-[7px] w-3 h-3 bg-white border-2 border-blue-400 rounded-full mt-0.5"></div>
+                              <div><b>{fmtIDR(h.price||0)}</b> · {h.delivery_days||"?"} hari · <span className="uppercase">{h.status}</span></div>
+                              <div className="text-slate-500">{h.submitted_at ? new Date(h.submitted_at).toLocaleString("id-ID") : ""}</div>
+                              {h.notes && <div className="italic text-slate-500">"{h.notes}"</div>}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
                     )}
                   </div>
                 )}
@@ -926,3 +960,120 @@ export function VendorProfile() {
     </div>
   );
 }
+
+// ============================
+// Vendor Pricelists (self-serve)
+// ============================
+export function VendorPricelists() {
+  const [rows, setRows] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ product_id: "", price: "", currency: "IDR", min_qty: 1, notes: "" });
+  const [uploading, setUploading] = useState(false);
+
+  const load = () => api.get("/vendor-portal/pricelists").then(r=>setRows(r.data));
+  useEffect(()=>{ load(); api.get("/products").then(r=>setProducts(r.data)); },[]);
+
+  const submit = async () => {
+    try {
+      if (!form.product_id || !form.price) return toast.error("Produk & harga wajib diisi");
+      await api.post("/vendor-portal/pricelists", {
+        ...form,
+        price: parseFloat(form.price),
+        min_qty: parseFloat(form.min_qty||1),
+      });
+      toast.success("Harga tersimpan");
+      setOpen(false); setForm({ product_id:"", price:"", currency:"IDR", min_qty:1, notes:"" }); load();
+    } catch(e){ toast.error(e.response?.data?.detail || "Gagal"); }
+  };
+  const remove = async (id) => {
+    if (!confirm("Hapus daftar harga ini?")) return;
+    await api.delete(`/vendor-portal/pricelists/${id}`);
+    toast.success("Dihapus"); load();
+  };
+  const uploadPdf = async (file) => {
+    setUploading(true);
+    try {
+      const fd = new FormData(); fd.append("file", file);
+      const t = localStorage.getItem("epr-token");
+      const r = await fetch(`${API_URL}/api/uploads/attachment`, { method:"POST", credentials:"include", headers: t?{Authorization:`Bearer ${t}`}:{}, body: fd });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail);
+      setForm(prev => ({...prev, file_url: d.url, filename: d.filename}));
+      toast.success("File terunggah");
+    } catch(e){ toast.error(e.message); }
+    finally { setUploading(false); }
+  };
+
+  return (
+    <div className="space-y-4" data-testid="vendor-pricelists">
+      <div className="flex justify-between items-end">
+        <div>
+          <div className="label-tiny">Vendor Portal</div>
+          <h1 className="font-heading text-3xl font-bold tracking-tight">Daftar Harga Saya</h1>
+          <p className="text-sm text-slate-600 mt-1">Publikasikan harga produk Anda agar tim procurement dapat melihat penawaran terkini saat merencanakan pembelian.</p>
+        </div>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild><Button data-testid="vpl-add-btn"><Plus size={14}/> Tambah Harga</Button></DialogTrigger>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Tambah Harga Produk</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label className="label-tiny">Produk</Label>
+                <Select value={form.product_id} onValueChange={v=>setForm({...form, product_id:v})}>
+                  <SelectTrigger data-testid="vpl-product"><SelectValue placeholder="Pilih produk"/></SelectTrigger>
+                  <SelectContent>{products.map(p=><SelectItem key={p.id} value={p.id}>{p.code ? `${p.code} — ${p.name}` : p.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="col-span-2"><Label className="label-tiny">Harga / Unit</Label><Input type="number" value={form.price} onChange={e=>setForm({...form, price:e.target.value})} data-testid="vpl-price"/></div>
+                <div><Label className="label-tiny">Mata Uang</Label>
+                  <Select value={form.currency} onValueChange={v=>setForm({...form, currency:v})}>
+                    <SelectTrigger data-testid="vpl-currency"><SelectValue/></SelectTrigger>
+                    <SelectContent>{["IDR","USD","SGD","JPY","EUR"].map(c=><SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div><Label className="label-tiny">Min Qty</Label><Input type="number" value={form.min_qty} onChange={e=>setForm({...form, min_qty:e.target.value})} data-testid="vpl-minqty"/></div>
+                <div><Label className="label-tiny">Berlaku Dari</Label><Input type="date" value={form.valid_from||""} onChange={e=>setForm({...form, valid_from:e.target.value})} data-testid="vpl-from"/></div>
+                <div><Label className="label-tiny">Berlaku Hingga</Label><Input type="date" value={form.valid_until||""} onChange={e=>setForm({...form, valid_until:e.target.value})} data-testid="vpl-until"/></div>
+              </div>
+              <div>
+                <Label className="label-tiny">Lampiran Pricelist (PDF/Excel, opsional)</Label>
+                <input type="file" accept=".pdf,.xls,.xlsx,.jpg,.png" onChange={e=>{const f=e.target.files?.[0]; if(f) uploadPdf(f);}} data-testid="vpl-file" className="block w-full text-xs mt-1"/>
+                {form.file_url && <a href={form.file_url} target="_blank" rel="noreferrer" className="text-[11px] text-blue-700 underline">{form.filename}</a>}
+              </div>
+              <div><Label className="label-tiny">Catatan</Label><Textarea value={form.notes} onChange={e=>setForm({...form, notes:e.target.value})} data-testid="vpl-notes"/></div>
+            </div>
+            <DialogFooter><Button onClick={submit} disabled={uploading} data-testid="vpl-save">Simpan Harga</Button></DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+      <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
+        <table className="data-table">
+          <thead><tr><th>Produk</th><th>Harga</th><th>Min Qty</th><th>Berlaku</th><th>File</th><th>Catatan</th><th></th></tr></thead>
+          <tbody>
+            {rows.length===0 && <tr><td colSpan={7} className="text-center py-6 text-slate-400">Belum ada harga. Klik "Tambah Harga".</td></tr>}
+            {rows.map(r=>(
+              <tr key={r.id} data-testid={`vpl-row-${r.id}`}>
+                <td>
+                  <div className="font-semibold">{r.product_name}</div>
+                  {r.product_code && <div className="text-[10px] font-mono text-slate-500">{r.product_code}</div>}
+                </td>
+                <td className="font-mono font-semibold">{r.currency||"IDR"} {(r.price||0).toLocaleString("id-ID")}</td>
+                <td>{r.min_qty||1}</td>
+                <td className="text-xs">{r.valid_from||"-"} → {r.valid_until||"-"}</td>
+                <td>{r.file_url ? <a href={r.file_url} target="_blank" rel="noreferrer" className="text-blue-700 underline text-xs">{r.filename||"file"}</a> : <span className="text-slate-400 text-xs">-</span>}</td>
+                <td className="text-xs">{r.notes||"-"}</td>
+                <td className="text-right"><button onClick={()=>remove(r.id)} data-testid={`vpl-del-${r.id}`}><Trash2 size={14} className="text-slate-400 hover:text-red-500"/></button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+

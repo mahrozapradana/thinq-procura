@@ -100,6 +100,9 @@ export default function Layout({ children }) {
               <NavLink to="/vendor/ls" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-vendor-ls">
                 <ScrollText size={16}/> Dokumen LS
               </NavLink>
+              <NavLink to="/vendor/pricelists" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-vendor-pricelists">
+                <Tag size={16}/> Daftar Harga Saya
+              </NavLink>
               <NavLink to="/vendor/profile" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-vendor-profile">
                 <Building2 size={16}/> Profil Perusahaan
               </NavLink>

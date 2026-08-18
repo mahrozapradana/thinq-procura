@@ -21,7 +21,7 @@ import TaxReports from "@/pages/TaxReports";
 import BranchAnalytics from "@/pages/BranchAnalytics";
 import SettingsPage from "@/pages/SettingsPage";
 import {
-  VendorHome, VendorTenders, VendorPOs, VendorRFQs, VendorShipments, VendorInvoices, VendorLS, VendorProfile,
+  VendorHome, VendorTenders, VendorPOs, VendorRFQs, VendorShipments, VendorInvoices, VendorLS, VendorProfile, VendorPricelists,
 } from "@/pages/VendorPortal";
 import "@/App.css";
 
@@ -65,6 +65,7 @@ function App() {
           <Route path="/vendor/shipments" element={<ProtectedRoute roles={["vendor"]}><Layout><VendorShipments/></Layout></ProtectedRoute>} />
           <Route path="/vendor/invoices" element={<ProtectedRoute roles={["vendor"]}><Layout><VendorInvoices/></Layout></ProtectedRoute>} />
           <Route path="/vendor/ls" element={<ProtectedRoute roles={["vendor"]}><Layout><VendorLS/></Layout></ProtectedRoute>} />
+          <Route path="/vendor/pricelists" element={<ProtectedRoute roles={["vendor"]}><Layout><VendorPricelists/></Layout></ProtectedRoute>} />
           <Route path="/vendor/profile" element={<ProtectedRoute roles={["vendor"]}><Layout><VendorProfile/></Layout></ProtectedRoute>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />

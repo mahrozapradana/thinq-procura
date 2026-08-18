@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 4 (7 new e-procurement features) tested. Backend: 9/9 pytest cases PASSED (test_iteration4_features.py). Frontend: All 7 features verified via Playwright after fixing a CRITICAL build-breaker in VendorPortal.jsx (VendorPricelists component was pasted inside VendorProfile's JSX return, missing closing tags + missing Trash2 import). After fix, /vendor/pricelists loads, sealed banner + TOR.pdf attachment link + 'Riwayat Revisi Bid (1)' mini-timeline all visible on vendor tender BE7DA detail sheet. Admin: Create Tender dialog exposes tender-sealed-toggle, tender-bonded-toggle, tender-upload-btn, tender-file-input; sealed tender row shows purple lock; detail sheet shows tender-sealed-block + tender-detail-attachments (reveal button hidden because BE7DA already revealed — expected). MasterData Products tab renders product-price-sheet with Pricelist Vendor / History PO tabs.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/tenders/{id}/reveal", "issue": "Returns 400 when tender already revealed (idempotent behavior). Acceptable but 200 with no-op would be friendlier."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "VendorPortal.jsx VendorPricelists", "issue": "CRITICAL (FIXED by testing agent): VendorPricelists function body was inserted inside VendorProfile's JSX return, breaking the JSX with a stray '// ============' comment token. Also Trash2 was used but not imported from lucide-react. Whole app failed to compile, then /vendor/pricelists crashed with 'Trash2 is not defined' runtime error.", "selector": "N/A", "priority": "CRITICAL"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Create Tender dialog (Buat Tender)", "issues": ["The row containing tender-sealed-toggle checkbox has an EMPTY visible label (see screenshot i4_create.png) — only the input checkbox is rendered next to the Bonded row, missing text like 'Sealed Bid Tender'. Users won't know what the toggle does. data-testid works but label text is missing."]},
+      {"screen": "Dialogs & Sheets", "issues": ["Radix a11y warning persists: DialogContent requires DialogTitle (same as iter-3, non-blocking)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration4_features.py",
+    "/app/test_reports/pytest/iter4_results.xml"
+  ],
+  "action_items": [
+    "(Already fixed by testing agent) Verify the VendorPortal.jsx merge — ensure VendorProfile properly closes before export function VendorPricelists(), and Trash2 is imported. See lines around 930 (VendorProfile closing) and 1044 (VendorPricelists export). Please review the fix.",
+    "Add a text label 'Sealed Bid Tender' next to the tender-sealed-toggle checkbox in the Buat Tender dialog (Tenders.jsx). Currently checkbox appears with no visible label.",
+    "Optional: silence Radix a11y warnings by adding VisuallyHidden DialogTitle / SheetDescription (carryover from iter-3)."
+  ],
+  "critical_code_review_comments": [
+    "VendorPortal.jsx (>1000 lines) — should be split into VendorTenders.jsx, VendorPOs.jsx, VendorPricelists.jsx etc. Current monolith made the merge bug hard to catch.",
+    "routes_procurement.reveal endpoint: consider making it idempotent (return 200 with already_revealed=true instead of 400).",
+    "MasterData ProductPriceSheet's ph-avg/ph-min/ph-max: verify these render correctly for a product WITH history POs — current test hit TESTP_UPD which has no POs so all show empty state (0 count). Seeded product cf433378 was NOT the first row in the table; consider ordering or lookup.",
+    "Cron /api/cron/tender-draft-reminders currently accepts unauthenticated GET — OK for internal cron but ensure preview URL doesn't allow abuse (rate-limit or shared secret header).",
+    "Sealed masking check on GET /tenders/{id} uses is_sealed AND status=='open' AND sealed_revealed_at is None — verified via reveal test; but 'closed' or 'awarded' status will auto-unmask which is correct per spec."
+  ],
+  "updated_files": [
+    "/app/frontend/src/pages/VendorPortal.jsx (fixed JSX close/open for VendorProfile vs VendorPricelists + added Trash2 import)",
+    "/app/backend/tests/test_iteration4_features.py (new pytest module)"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% after fix (7/7 features verified via Playwright)"},
+  "test_credentials": "Admin mahrozapradana46@gmail.com/admin123, Vendor test_vendor_423f4216@example.com/vendor123 — both work.",
+  "seed_data_creation": "None new — used seeded sealed tender BE7DA (already revealed), expired tender 2ed9ac53, product cf433378, and existing vendor pricelist for TEST_Laptop v2 12.500.000 IDR.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration 4 features all working. The critical VendorPortal.jsx merge bug was resolved by moving the VendorPricelists function block from inside VendorProfile's JSX return to after VendorProfile ends, and adding Trash2 to the lucide-react import. Main agent should confirm the file structure is correct (grep for 'export function VendorPricelists' — should be at file end, VendorProfile complete before it).",
+  "rca of the issue": "Root cause: main agent's iteration-4 edit appended VendorPricelists source code inside VendorProfile's tab==='document' <table> return block. The pasted content started with a JS line comment '// ==' which JSX/babel treated as invalid text at position 935:2, breaking compilation. Additionally Trash2 was used in the pricelist row but not imported. Reproduction: yarn start / webpack compile fails with 'SyntaxError Unexpected token (935:2)'. Even after JSX repair, /vendor/pricelists throws 'ReferenceError: Trash2 is not defined'. Mitigation: (a) close VendorProfile JSX properly and place VendorPricelists as a peer top-level export after VendorProfile closes; (b) add Trash2 to lucide-react import; (c) both applied in /app/frontend/src/pages/VendorPortal.jsx by testing agent — please review."
+}

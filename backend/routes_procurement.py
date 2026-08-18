@@ -699,6 +699,13 @@ class TenderItemIn(BaseModel):
     specs: Optional[str] = None
 
 
+class TenderAttachmentIn(BaseModel):
+    url: str
+    filename: str
+    size: Optional[int] = None
+    content_type: Optional[str] = None
+
+
 class TenderIn(BaseModel):
     title: str
     description: Optional[str] = None
@@ -707,6 +714,18 @@ class TenderIn(BaseModel):
     deadline: Optional[str] = None
     invited_vendor_ids: List[str] = Field(default_factory=list)  # empty = open
     is_bonded: bool = False
+    is_sealed: bool = False
+    attachments: List[TenderAttachmentIn] = Field(default_factory=list)
+
+
+class TenderUpdateIn(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    terms: Optional[str] = None
+    deadline: Optional[str] = None
+    is_sealed: Optional[bool] = None
+    attachments: Optional[List[TenderAttachmentIn]] = None
+    invited_vendor_ids: Optional[List[str]] = None
 
 
 @router.get("/tenders")
@@ -721,7 +740,52 @@ async def get_tender(tid: str, user=Depends(get_current_active_user)):
     doc = await db.tenders.find_one({"id": tid}, {"_id": 0})
     if not doc:
         raise HTTPException(404, "Tender not found")
+    # Sealed bid: mask bid prices until reveal (buyer side only; vendor uses vendor-portal endpoint)
+    if doc.get("is_sealed") and not doc.get("sealed_revealed_at") and doc.get("status") == "open":
+        for b in (doc.get("bids") or []):
+            b["_sealed"] = True
+            b["price"] = None
+            b["delivery_days"] = None
+            b["notes"] = None
+            for it in (b.get("items") or []):
+                it["price"] = None
     return doc
+
+
+@router.put("/tenders/{tid}")
+async def update_tender(tid: str, payload: TenderUpdateIn, user=Depends(get_current_active_user)):
+    if user["role"] not in ("admin", "procurement"):
+        raise HTTPException(403, "Not allowed")
+    db = get_db()
+    t = await db.tenders.find_one({"id": tid})
+    if not t:
+        raise HTTPException(404, "Tender not found")
+    data = payload.model_dump(exclude_none=True)
+    # attachments already serialized to list[dict] via model_dump
+    if data:
+        await db.tenders.update_one({"id": tid}, {"$set": data})
+    return await db.tenders.find_one({"id": tid}, {"_id": 0})
+
+
+@router.post("/tenders/{tid}/reveal")
+async def reveal_sealed_bids(tid: str, user=Depends(get_current_active_user)):
+    """Buyer opens the 'envelope' — reveals sealed bid prices. Idempotent."""
+    if user["role"] not in ("admin", "procurement"):
+        raise HTTPException(403, "Not allowed")
+    db = get_db()
+    t = await db.tenders.find_one({"id": tid})
+    if not t:
+        raise HTTPException(404, "Tender not found")
+    if not t.get("is_sealed"):
+        raise HTTPException(400, "Tender bukan sealed bid")
+    if t.get("sealed_revealed_at"):
+        return {"ok": True, "already_revealed": True, "revealed_at": t.get("sealed_revealed_at")}
+    revealed_at = now_iso()
+    await db.tenders.update_one({"id": tid}, {"$set": {
+        "sealed_revealed_at": revealed_at,
+        "sealed_revealed_by": user["id"],
+    }})
+    return {"ok": True, "already_revealed": False, "revealed_at": revealed_at}
 
 
 @router.post("/tenders")

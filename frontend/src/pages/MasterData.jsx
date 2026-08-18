@@ -5,12 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, LineChart } from "lucide-react";
 import { fmtIDR } from "@/lib/api";
 
-function DataSection({ title, endpoint, columns, fields, testid, extra }) {
+function DataSection({ title, endpoint, columns, fields, testid, extra, rowActions }) {
   const [rows, setRows] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({});
@@ -74,7 +75,10 @@ function DataSection({ title, endpoint, columns, fields, testid, extra }) {
             {rows.map(r => (
               <tr key={r.id} data-testid={`${testid}-row-${r.id}`}>
                 {columns.map(c => <td key={c.key}>{c.render ? c.render(r) : r[c.key]}</td>)}
-                <td className="text-right"><button onClick={()=>remove(r.id)} data-testid={`${testid}-del-${r.id}`}><Trash2 size={14} className="text-slate-400 hover:text-red-500"/></button></td>
+                <td className="text-right whitespace-nowrap">
+                  {rowActions?.(r)}
+                  <button onClick={()=>remove(r.id)} data-testid={`${testid}-del-${r.id}`}><Trash2 size={14} className="text-slate-400 hover:text-red-500"/></button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -84,9 +88,108 @@ function DataSection({ title, endpoint, columns, fields, testid, extra }) {
   );
 }
 
+function ProductPriceSheet({ product, onClose }) {
+  const [pricelists, setPricelists] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [tab, setTab] = useState("pricelists");
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    if (!product) return;
+    setLoading(true);
+    Promise.all([
+      api.get(`/products/${product.id}/pricelists`).then(r => setPricelists(r.data)),
+      api.get(`/products/${product.id}/price-history`).then(r => setHistory(r.data)),
+    ]).finally(() => setLoading(false));
+  }, [product]);
+  if (!product) return null;
+  const avgPO = history.length ? history.reduce((s,h)=>s+(h.price||0),0)/history.length : 0;
+  const minPO = history.length ? Math.min(...history.map(h=>h.price||0)) : 0;
+  const maxPO = history.length ? Math.max(...history.map(h=>h.price||0)) : 0;
+  return (
+    <Sheet open={!!product} onOpenChange={(v)=>!v && onClose()}>
+      <SheetContent className="w-full sm:max-w-3xl overflow-y-auto bg-white" data-testid="product-price-sheet">
+        <SheetHeader><SheetTitle>{product.code} — {product.name}</SheetTitle></SheetHeader>
+        <div className="mt-4">
+          <Tabs value={tab} onValueChange={setTab}>
+            <TabsList className="bg-slate-100">
+              <TabsTrigger value="pricelists" data-testid="tab-pricelists">Pricelist Vendor ({pricelists.length})</TabsTrigger>
+              <TabsTrigger value="history" data-testid="tab-history">History PO ({history.length})</TabsTrigger>
+            </TabsList>
+            <TabsContent value="pricelists" className="mt-3">
+              {loading ? <div className="text-sm text-slate-500">Memuat...</div> : pricelists.length === 0 ? (
+                <div className="text-sm text-slate-400 italic p-4 text-center border border-dashed rounded">Belum ada vendor yang mengunggah harga untuk produk ini.</div>
+              ) : (
+                <div className="border border-slate-200 rounded overflow-x-auto">
+                  <table className="data-table">
+                    <thead><tr><th>Vendor</th><th>Harga</th><th>Min Qty</th><th>Berlaku</th><th>File</th><th>Catatan</th><th>Diunggah</th></tr></thead>
+                    <tbody>
+                      {pricelists.map((p,i)=>(
+                        <tr key={p.id} data-testid={`pl-row-${i}`}>
+                          <td className="font-semibold">{p.vendor_name}</td>
+                          <td className="font-mono font-semibold">{p.currency||"IDR"} {(p.price||0).toLocaleString("id-ID")}</td>
+                          <td>{p.min_qty||1}</td>
+                          <td className="text-xs">{p.valid_from||"-"} → {p.valid_until||"-"}</td>
+                          <td>{p.file_url ? <a href={p.file_url} target="_blank" rel="noreferrer" className="text-blue-700 underline text-xs">{p.filename||"file"}</a> : <span className="text-slate-400">-</span>}</td>
+                          <td className="text-xs">{p.notes||"-"}</td>
+                          <td className="text-[10px] text-slate-500">{p.created_at ? new Date(p.created_at).toLocaleDateString("id-ID"):"-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </TabsContent>
+            <TabsContent value="history" className="mt-3">
+              {loading ? <div className="text-sm text-slate-500">Memuat...</div> : history.length === 0 ? (
+                <div className="text-sm text-slate-400 italic p-4 text-center border border-dashed rounded">Belum ada history pembelian untuk produk ini.</div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    <div className="bg-emerald-50 border border-emerald-200 rounded p-2 text-xs" data-testid="ph-avg">
+                      <div className="label-tiny">Rata-rata</div>
+                      <div className="font-mono font-bold text-sm">{fmtIDR(avgPO)}</div>
+                    </div>
+                    <div className="bg-blue-50 border border-blue-200 rounded p-2 text-xs" data-testid="ph-min">
+                      <div className="label-tiny">Terendah</div>
+                      <div className="font-mono font-bold text-sm">{fmtIDR(minPO)}</div>
+                    </div>
+                    <div className="bg-amber-50 border border-amber-200 rounded p-2 text-xs" data-testid="ph-max">
+                      <div className="label-tiny">Tertinggi</div>
+                      <div className="font-mono font-bold text-sm">{fmtIDR(maxPO)}</div>
+                    </div>
+                  </div>
+                  <div className="border border-slate-200 rounded overflow-x-auto">
+                    <table className="data-table">
+                      <thead><tr><th>No PO</th><th>Tanggal</th><th>Vendor</th><th>Qty</th><th>Harga</th><th>Currency</th><th>Subtotal</th></tr></thead>
+                      <tbody>
+                        {history.map((h,i)=>(
+                          <tr key={i} data-testid={`ph-row-${i}`}>
+                            <td className="font-mono text-xs">{h.po_number}</td>
+                            <td className="text-xs">{h.created_at ? new Date(h.created_at).toLocaleDateString("id-ID"):"-"}</td>
+                            <td>{h.vendor_name||"-"}</td>
+                            <td>{h.qty}</td>
+                            <td className="font-mono">{(h.price||0).toLocaleString("id-ID")}</td>
+                            <td className="text-xs">{h.currency}</td>
+                            <td className="font-mono">{(h.subtotal||0).toLocaleString("id-ID")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </TabsContent>
+          </Tabs>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 export default function MasterData() {
   const [cats, setCats] = useState([]);
   const [hs, setHs] = useState([]);
+  const [priceProd, setPriceProd] = useState(null);
   useEffect(() => {
     api.get("/categories").then(r => setCats(r.data));
     api.get("/hs-codes").then(r => setHs(r.data));
@@ -113,6 +216,11 @@ export default function MasterData() {
             testid="products-section"
             title="Products"
             endpoint="/products"
+            rowActions={(r)=>(
+              <button onClick={()=>setPriceProd(r)} className="mr-2 inline-flex items-center gap-1 text-blue-700 hover:underline text-xs" data-testid={`prod-price-${r.id}`}>
+                <LineChart size={12}/> Harga
+              </button>
+            )}
             columns={[
               {key:"code", label:"Code / SKU"},
               {key:"name", label:"Name"},
@@ -183,6 +291,7 @@ export default function MasterData() {
             ]}/>
         </TabsContent>
       </Tabs>
+      <ProductPriceSheet product={priceProd} onClose={()=>setPriceProd(null)} />
     </div>
   );
 }

@@ -85,3 +85,51 @@ async def approval_sla_alerts(
     run_id = x_webhook_id or (body.get("run_id") if isinstance(body, dict) else None) or "manual"
     background.add_task(_dispatch_sla_alerts, run_id)
     return {"ok": True, "run_id": run_id, "enqueued": True}
+
+
+
+async def _dispatch_draft_reminders(run_id: str):
+    """Find open tenders with deadline in 12-36h and email vendors who have draft bids."""
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    lo = now + timedelta(hours=12)
+    hi = now + timedelta(hours=36)
+    sent = 0
+    async for t in db.tenders.find({"status": "open", "deadline": {"$exists": True, "$ne": None}}, {"_id": 0}):
+        try:
+            dl_raw = t.get("deadline") or ""
+            dl = datetime.fromisoformat(dl_raw.replace("Z", "+00:00")) if "T" in dl_raw else datetime.fromisoformat(dl_raw + "T23:59:59+00:00")
+            if dl.tzinfo is None:
+                dl = dl.replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+        if not (lo <= dl <= hi):
+            continue
+        draft_vendors = [b.get("vendor_id") for b in (t.get("bids") or []) if b.get("status") == "draft"]
+        if not draft_vendors:
+            continue
+        users = await db.users.find({"role": "vendor", "vendor_id": {"$in": draft_vendors}}, {"_id": 0, "email": 1, "name": 1, "vendor_id": 1}).to_list(200)
+        if not users:
+            continue
+        emails = [u["email"] for u in users if u.get("email")]
+        hours_left = int((dl - now).total_seconds() / 3600)
+        subject = f"[Procura] Reminder: draft bid untuk {t.get('tender_number')} akan expire dalam {hours_left} jam"
+        body = f"""
+        <h2>⏰ Draft bid belum disubmit</h2>
+        <p>Anda memiliki draft bid untuk tender <b>{t.get('tender_number')} — {t.get('title')}</b>.</p>
+        <p>Deadline: <b>{dl.strftime('%d %b %Y %H:%M UTC')}</b> — <b>{hours_left} jam</b> lagi.</p>
+        <p>Silakan login ke Vendor Portal &rarr; Tender untuk melanjutkan atau submit bid Anda.</p>
+        <p style="color:#94A3B8;font-size:11px;">Cron run: {run_id}</p>
+        """
+        ok = await send_email(emails, subject, body)
+        if ok:
+            sent += 1
+    logger.info(f"[draft-reminder] run={run_id} sent={sent}")
+
+
+@router.get("/tender-draft-reminders")
+async def tender_draft_reminders(request: Request, background: BackgroundTasks, x_webhook_id: str | None = Header(default=None)):
+    """No-auth cron: platform can hit this via GET. Runs quickly, enqueues heavy work."""
+    run_id = x_webhook_id or "manual"
+    background.add_task(_dispatch_draft_reminders, run_id)
+    return {"ok": True, "run_id": run_id, "enqueued": True}
