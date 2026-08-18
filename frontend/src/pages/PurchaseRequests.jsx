@@ -1,0 +1,190 @@
+import { useEffect, useState } from "react";
+import api, { fmtIDR } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { toast } from "sonner";
+import { Plus, Trash2, Check, X, Eye } from "lucide-react";
+
+const STATUS_STYLE = {
+  approved: "bg-emerald-100 text-emerald-700",
+  pending_approval: "bg-amber-100 text-amber-700",
+  rejected: "bg-red-100 text-red-700",
+  draft: "bg-slate-100 text-slate-700",
+  converted_to_po: "bg-blue-100 text-blue-700",
+};
+
+export default function PurchaseRequests() {
+  const [rows, setRows] = useState([]);
+  const [depts, setDepts] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [detail, setDetail] = useState(null);
+  const [form, setForm] = useState({ items: [], procurement_type:"DIRECT", is_bonded: false });
+
+  const load = () => api.get("/prs").then(r=>setRows(r.data));
+  useEffect(() => {
+    load();
+    api.get("/departments").then(r=>setDepts(r.data));
+    api.get("/products").then(r=>setProducts(r.data));
+  }, []);
+
+  const addItem = () => setForm({...form, items: [...form.items, {product_id:"",qty:1,price:0}]});
+  const setItem = (i,k,v) => setForm({...form, items: form.items.map((it,idx)=>idx===i?{...it,[k]:v}:it)});
+  const rmItem = (i) => setForm({...form, items: form.items.filter((_,idx)=>idx!==i)});
+
+  const submit = async () => {
+    try {
+      const payload = { ...form, items: form.items.map(it => {
+        const p = products.find(x=>x.id===it.product_id);
+        return { ...it, qty: parseFloat(it.qty), price: parseFloat(it.price), product_name: p?.name, hs_code: p?.hs_code_id };
+      }) };
+      await api.post("/prs", payload);
+      toast.success("PR dibuat"); setOpen(false); setForm({items:[],procurement_type:"DIRECT",is_bonded:false}); load();
+    } catch(e){ toast.error(e.response?.data?.detail); }
+  };
+  const approve = async (id) => { await api.post(`/prs/${id}/approve`); toast.success("Approved"); load(); if(detail) refresh(id); };
+  const reject = async (id) => { await api.post(`/prs/${id}/reject`); toast.success("Rejected"); load(); if(detail) refresh(id); };
+  const refresh = (id) => api.get(`/prs/${id}`).then(r=>setDetail(r.data));
+
+  const total = form.items.reduce((s,i)=>s+(parseFloat(i.qty||0)*parseFloat(i.price||0)),0);
+
+  return (
+    <div className="space-y-4" data-testid="pr-page">
+      <div className="flex justify-between items-end">
+        <div>
+          <div className="label-tiny">Procurement</div>
+          <h1 className="font-heading text-3xl font-bold tracking-tight">Purchase Requests</h1>
+        </div>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild><Button data-testid="pr-add-btn"><Plus size={14}/> Buat PR</Button></DialogTrigger>
+          <DialogContent className="max-w-3xl">
+            <DialogHeader><DialogTitle>Buat Purchase Request</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-3">
+                <div><Label className="label-tiny">Department *</Label>
+                  <Select value={form.department_id||""} onValueChange={v=>setForm({...form,department_id:v})}>
+                    <SelectTrigger data-testid="pr-dept"><SelectValue placeholder="-"/></SelectTrigger>
+                    <SelectContent>{depts.map(d=><SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div><Label className="label-tiny">Procurement Type</Label>
+                  <Select value={form.procurement_type} onValueChange={v=>setForm({...form,procurement_type:v})}>
+                    <SelectTrigger data-testid="pr-type"><SelectValue/></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="DIRECT">Penunjukan Langsung (Direct)</SelectItem>
+                      <SelectItem value="TENDER">Tender</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <Label className="label-tiny">Bonded (Kawasan Berikat)</Label>
+                    <div className="h-10 flex items-center"><Switch checked={form.is_bonded} onCheckedChange={v=>setForm({...form,is_bonded:v})} data-testid="pr-bonded"/></div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border border-slate-200 rounded p-3">
+                <div className="flex justify-between mb-2"><div className="label-tiny">Items</div><Button size="sm" variant="outline" onClick={addItem} data-testid="pr-add-item">+ Item</Button></div>
+                {form.items.map((it,i)=>(
+                  <div key={i} className="grid grid-cols-12 gap-2 mb-2 items-end">
+                    <div className="col-span-6">
+                      <Select value={it.product_id} onValueChange={v=>{
+                        const p = products.find(x=>x.id===v);
+                        setItem(i,"product_id",v); if(p) setItem(i,"price",p.default_price||0);
+                      }}>
+                        <SelectTrigger data-testid={`pr-item-prod-${i}`}><SelectValue placeholder="Pilih produk"/></SelectTrigger>
+                        <SelectContent>{products.map(p=><SelectItem key={p.id} value={p.id}>{p.code} — {p.name}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="col-span-2"><Input type="number" placeholder="Qty" value={it.qty} onChange={e=>setItem(i,"qty",e.target.value)} data-testid={`pr-item-qty-${i}`}/></div>
+                    <div className="col-span-3"><Input type="number" placeholder="Harga" value={it.price} onChange={e=>setItem(i,"price",e.target.value)} data-testid={`pr-item-price-${i}`}/></div>
+                    <div className="col-span-1 text-right pb-1"><button onClick={()=>rmItem(i)}><Trash2 size={14} className="text-red-500"/></button></div>
+                  </div>
+                ))}
+                <div className="mt-2 flex justify-end text-sm font-heading font-bold">Total: <span className="ml-2 font-mono">{fmtIDR(total)}</span></div>
+              </div>
+              <div><Label className="label-tiny">Catatan</Label><Textarea value={form.notes||""} onChange={e=>setForm({...form,notes:e.target.value})} data-testid="pr-notes"/></div>
+            </div>
+            <DialogFooter><Button onClick={submit} disabled={!form.items.length || !form.department_id} data-testid="pr-save">Buat PR</Button></DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+        <table className="data-table">
+          <thead><tr><th>No PR</th><th>Requester</th><th>Department</th><th>Type</th><th>Bonded</th><th>Total</th><th>Status</th><th>Warehouse</th><th></th></tr></thead>
+          <tbody>
+            {rows.length===0 && <tr><td colSpan={9} className="text-center py-6 text-slate-400">Belum ada PR</td></tr>}
+            {rows.map(r => (
+              <tr key={r.id} data-testid={`pr-row-${r.id}`}>
+                <td className="font-mono text-xs">{r.pr_number}</td>
+                <td>{r.requester_name}</td>
+                <td>{depts.find(d=>d.id===r.department_id)?.name || "-"}</td>
+                <td><span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-slate-100">{r.procurement_type}</span></td>
+                <td>{r.is_bonded ? <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">BONDED</span> : "-"}</td>
+                <td className="font-mono">{fmtIDR(r.total)}</td>
+                <td><span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS_STYLE[r.status]}`}>{r.status}</span></td>
+                <td className="text-[11px] text-slate-500">{r.warehouse_status || "not_received"}</td>
+                <td className="text-right whitespace-nowrap">
+                  <button onClick={()=>{setDetail(r);}} className="p-1 hover:bg-slate-100 rounded" data-testid={`pr-view-${r.id}`}><Eye size={14}/></button>
+                  {r.status==="pending_approval" && <>
+                    <button onClick={()=>approve(r.id)} className="p-1 hover:bg-emerald-50 rounded" data-testid={`pr-approve-${r.id}`}><Check size={14} className="text-emerald-600"/></button>
+                    <button onClick={()=>reject(r.id)} className="p-1 hover:bg-red-50 rounded" data-testid={`pr-reject-${r.id}`}><X size={14} className="text-red-600"/></button>
+                  </>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <Sheet open={!!detail} onOpenChange={(v)=>!v && setDetail(null)}>
+        <SheetContent className="w-full sm:max-w-2xl overflow-y-auto bg-white">
+          {detail && (
+            <>
+              <SheetHeader><SheetTitle>{detail.pr_number}</SheetTitle></SheetHeader>
+              <div className="mt-4 space-y-4">
+                <div className="grid grid-cols-3 gap-3 text-sm">
+                  <div><div className="label-tiny">Type</div><div>{detail.procurement_type}</div></div>
+                  <div><div className="label-tiny">Bonded</div><div>{detail.is_bonded ? "Yes" : "No"}</div></div>
+                  <div><div className="label-tiny">Total</div><div className="font-mono font-bold">{fmtIDR(detail.total)}</div></div>
+                </div>
+                <div>
+                  <div className="label-tiny mb-2">Items</div>
+                  <table className="data-table">
+                    <thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Subtotal</th></tr></thead>
+                    <tbody>{detail.items.map((it,i)=>(<tr key={i}><td>{it.product_name || products.find(p=>p.id===it.product_id)?.name}</td><td>{it.qty}</td><td className="font-mono">{fmtIDR(it.price)}</td><td className="font-mono">{fmtIDR(it.subtotal)}</td></tr>))}</tbody>
+                  </table>
+                </div>
+                <div>
+                  <div className="label-tiny mb-2">Approval Timeline</div>
+                  <div className="space-y-2">
+                    {detail.approvals?.length ? detail.approvals.map((a,i)=>(
+                      <div key={i} className="flex items-center gap-3 p-2 border border-slate-200 rounded">
+                        <div className={`w-7 h-7 rounded font-mono text-xs flex items-center justify-center ${a.status==="approved"?"bg-emerald-500 text-white":a.status==="rejected"?"bg-red-500 text-white":"bg-slate-200"}`}>L{a.level}</div>
+                        <div className="flex-1"><div className="text-xs uppercase font-semibold">{a.role}</div><div className="text-[11px] text-slate-500">{a.at || "menunggu"}</div></div>
+                        <div className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS_STYLE[a.status]||"bg-slate-100"}`}>{a.status}</div>
+                      </div>
+                    )) : <div className="text-xs text-slate-500">Auto-approved (tidak ada workflow)</div>}
+                  </div>
+                </div>
+                <div>
+                  <div className="label-tiny mb-2">Warehouse Tracking</div>
+                  <div className="text-sm">Status: <span className="font-semibold">{detail.warehouse_status || "not_received"}</span></div>
+                  <div className="text-sm">PO: <span className="font-mono">{detail.po_id || "-"}</span></div>
+                </div>
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}

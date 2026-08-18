@@ -1,0 +1,91 @@
+{
+  "theme_strategy": "Light Theme Default (High-Contrast Swiss/Utility for Data Readability in ERP context).",
+  "typography": {
+    "headings": {
+      "family": "Cabinet Grotesk, Outfit, or Manrope",
+      "style": "tracking-tight, leading-none, font-semibold to font-bold",
+      "forbidden": ["Inter", "Roboto", "Open Sans", "Lato"]
+    },
+    "body": {
+      "family": "IBM Plex Sans or Inter",
+      "style": "text-sm text-slate-700 leading-relaxed"
+    },
+    "labels": {
+      "style": "uppercase, tracking-[0.2em], text-[10px] md:text-xs, text-slate-500 font-semibold"
+    }
+  },
+  "colors": {
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "primary": "#0F172A",
+    "accent": "#2563EB",
+    "status": {
+      "approved": {
+        "text": "#059669",
+        "bg": "#D1FAE5"
+      },
+      "pending": {
+        "text": "#D97706",
+        "bg": "#FEF3C7"
+      },
+      "rejected": {
+        "text": "#DC2626",
+        "bg": "#FEE2E2"
+      }
+    },
+    "text": {
+      "primary": "#0F172A",
+      "secondary": "#475569",
+      "muted": "#94A3B8"
+    }
+  },
+  "layouts": {
+    "general": "High-density grid architecture. Sidebar navigation (w-64) + Main Content Area with sticky header.",
+    "dashboard": "Bento Grid Pattern (Mode B). 3-tier hierarchy: KPIs (top, col-span-1), Trend Charts (middle, col-span-2 or 3), Data Tables (bottom, col-span-full).",
+    "spacing": "Dense spacing for data tables (p-2 to p-4). Generous spacing for headers and page containers (p-6 to p-8).",
+    "borders": "The 'Technical Look': grid borders (border-collapse, border-slate-200, 1px solid). No soft shadows."
+  },
+  "components": {
+    "auth": "Split screen layout. Left side minimal form, Right side structural/architectural image overlay (bg-black/30).",
+    "cards": "Flat surfaces, 1px border-slate-200, sharp edges (rounded-md max).",
+    "tables": "Compact row heights (h-10 or h-12). Sticky headers. Use badge components for status columns (Draft, Approval Stages, PO, Receipt).",
+    "timeline": "Vertical stepped timeline for tracking PR progress and warehouse receipts.",
+    "forms": "Multi-column grid forms for PR creation. Inline validation.",
+    "modals": "Use Shadcn Sheet (slide-out panels from right) for PR/PO Details, Tender bids, and LS Document uploads, preserving table context."
+  },
+  "visual_enhancers": {
+    "surfaces": "Flat Solid. Avoid Glassmorphism entirely as it reduces data readability in financial/logistics ERPs.",
+    "motion": "Minimalistic. Staggered fade-ins (opacity/translate-y) for table rows and list items.",
+    "icons": "Phosphor Icons (@phosphor-icons/react) for crisp, professional scaling in dense UI."
+  },
+  "media": {
+    "auth_background": {
+      "url": "https://images.unsplash.com/photo-1498262257252-c282316270bc?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODF8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMGFyY2hpdGVjdHVyZSUyMG1pbmltYWx8ZW58MHx8fHwxNzg3MDEwNjM2fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Curved white architectural ribs - Use for main admin/procurement auth screen."
+    },
+    "vendor_portal_background": {
+      "url": "https://images.unsplash.com/photo-1494412519320-aa613dfb7738?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTN8MHwxfHNlYXJjaHwyfHx3YXJlaG91c2UlMjBsb2dpc3RpY3MlMjBzaGlwcGluZyUyMGNvbnRhaW5lcnN8ZW58MHx8fHwxNzg3MDEwNjQwfDA&ixlib=rb-4.1.0&q=85",
+      "description": "Aerial view of shipping containers - Use for vendor portal auth or logistics bonded zone sections."
+    }
+  },
+  "instructions_to_main_agent": [
+    "Write code using standard .js and .jsx files, NOT .tsx (TypeScript).",
+    "Build a robust sidebar navigation accommodating multi-role access (Admin, Procurement, Requester, Approver, Warehouse, Vendor, Finance).",
+    "Implement high-density Data Tables with inline actions, checkboxes for bulk actions (like merging multiple PRs to PO), and clear status badges.",
+    "Design a PR Creation page with a dynamic multi-level approval matrix visualizer.",
+    "Include a Budget validation UI element (e.g., Progress bar showing budget consumption when creating a PR).",
+    "Create a Vendor Portal view featuring open tenders, bidding actions, and invoice submissions.",
+    "For the Kawasan Berikat (Bonded Zone) module, design a document upload section (LS, customs) with HS Code selectors and separate tabs for Local vs Bonded POs.",
+    "Use Phosphor icons. Install with: yarn add @phosphor-icons/react",
+    "Add 'data-testid' attributes to ALL interactive elements (buttons, inputs, menu items, table rows) using kebab-case role-based naming (e.g., data-testid='submit-pr-button')."
+  ],
+  "universal_guidelines": [
+    "NEVER use generic centered layouts or simplistic gradients.",
+    "DO NOT use transparent backgrounds for headers, dropdowns, or modals that sit above content.",
+    "Do not apply global transitions (e.g., transition: all).",
+    "Do not center align the app container (.App { text-align: center; }).",
+    "Add hover/focus states to all interactive elements with explicitly increased contrast.",
+    "Use sonner for toast notifications.",
+    "Avoid using card components excessively. Go flat, rectangular, dense styles for Data UI."
+  ]
+}
