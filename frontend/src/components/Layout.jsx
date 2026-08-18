@@ -1,7 +1,10 @@
 import { NavLink, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { Toaster } from "sonner";
 import NotificationsBell from "@/components/NotificationsBell";
+import ThemeToggle from "@/components/ThemeToggle";
+import api from "@/lib/api";
 import {
   LayoutDashboard, Package, Building2, Tag, Users, FileText,
   ClipboardList, Gavel, Warehouse, Wallet, Settings, LogOut,
@@ -14,6 +17,17 @@ export default function Layout({ children }) {
   const { user, logout } = useAuth();
   const nav = useNavigate();
   const isVendor = user?.role === "vendor";
+  const [counts, setCounts] = useState({ rfq: 0, po: 0, invoice: 0, tender: 0 });
+
+  useEffect(() => {
+    if (!isVendor) return;
+    const load = () => api.get("/vendor-portal/unread-counts").then(r => setCounts(r.data)).catch(()=>{});
+    load();
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+  }, [isVendor]);
+
+  const Badge = ({ n }) => n > 0 ? <span className="ml-auto text-[10px] min-w-[16px] h-4 px-1 bg-red-500 text-white font-bold rounded-full flex items-center justify-center" data-testid="side-badge">{n > 99 ? "99+" : n}</span> : null;
 
   const handleLogout = async () => {
     await logout();
@@ -36,19 +50,19 @@ export default function Layout({ children }) {
                 <LayoutDashboard size={16}/> Dashboard
               </NavLink>
               <NavLink to="/vendor/tenders" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-vendor-tenders">
-                <Gavel size={16}/> Tender Terbuka
+                <Gavel size={16}/> Tender Terbuka<Badge n={counts.tender}/>
               </NavLink>
               <NavLink to="/vendor/rfqs" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-vendor-rfqs">
-                <ClipboardList size={16}/> RFQ / PO Menunggu
+                <ClipboardList size={16}/> RFQ / PO Menunggu<Badge n={counts.rfq}/>
               </NavLink>
               <NavLink to="/vendor/pos" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-vendor-pos">
-                <FileText size={16}/> Purchase Orders
+                <FileText size={16}/> Purchase Orders<Badge n={counts.po}/>
               </NavLink>
               <NavLink to="/vendor/shipments" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-vendor-shipments">
                 <Ship size={16}/> Pengiriman
               </NavLink>
               <NavLink to="/vendor/invoices" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-vendor-invoices">
-                <Receipt size={16}/> Invoice / Penagihan
+                <Receipt size={16}/> Invoice / Penagihan<Badge n={counts.invoice}/>
               </NavLink>
               <NavLink to="/vendor/ls" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-vendor-ls">
                 <ScrollText size={16}/> Dokumen LS
@@ -140,6 +154,7 @@ export default function Layout({ children }) {
             <span className="font-heading font-semibold text-slate-900">Kawasan Berikat Aktif</span>
           </div>
           <div className="flex items-center gap-4">
+            <ThemeToggle/>
             <NotificationsBell/>
             <div className="text-xs text-slate-500 font-mono">{new Date().toLocaleString("id-ID")}</div>
           </div>

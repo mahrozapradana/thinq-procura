@@ -142,6 +142,25 @@ async def notifications_stream(request: Request, user=Depends(get_current_active
     })
 
 
+class PreferencesIn(BaseModel):
+    theme: Optional[str] = None  # light | dark
+
+
+@router.get("/users/me/preferences")
+async def get_prefs(user=Depends(get_current_active_user)):
+    db = get_db()
+    u = await db.users.find_one({"id": user["id"]}, {"preferences": 1, "_id": 0}) or {}
+    return u.get("preferences") or {"theme": "light"}
+
+
+@router.put("/users/me/preferences")
+async def set_prefs(payload: PreferencesIn, user=Depends(get_current_active_user)):
+    db = get_db()
+    upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+    await db.users.update_one({"id": user["id"]}, {"$set": {"preferences": upd}})
+    return upd
+
+
 class PrefsIn(BaseModel):
     email: dict | bool = True  # legacy bool ok; dict = per-type {rfq_reply, approval, rating, po_new, general}
     bell: dict | bool = True

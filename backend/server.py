@@ -41,6 +41,7 @@ from routes_spt import router as spt_router
 from routes_notifications import router as notif_router
 from routes_vendor_suggest import router as vsuggest_router
 from routes_fx import router as fx_router
+from routes_digest import router as digest_router
 
 
 logging.basicConfig(
@@ -144,6 +145,7 @@ app.include_router(spt_router)
 app.include_router(notif_router)
 app.include_router(vsuggest_router)
 app.include_router(fx_router)
+app.include_router(digest_router)
 
 
 # ---------- CORS ----------

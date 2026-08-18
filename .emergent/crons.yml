@@ -12,3 +12,9 @@ crons:
     endpoint: "{{BASE_URL}}/api/cron/fetch-fx-rates"
     method: GET
     enabled: true
+  - name: notification-digest
+    description: "Daily 07:00 UTC email digest of last-24h notifications for users with realtime email OFF"
+    cron: "0 7 * * *"
+    endpoint: "{{BASE_URL}}/api/cron/notification-digest"
+    method: GET
+    enabled: true

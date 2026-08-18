@@ -31,6 +31,38 @@
     --radius: 0.375rem;
 }
 
+.dark {
+    --background: 222 47% 8%;
+    --foreground: 210 40% 98%;
+    --card: 217 33% 12%;
+    --card-foreground: 210 40% 98%;
+    --popover: 217 33% 12%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222 47% 8%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 91% 60%;
+    --accent-foreground: 0 0% 100%;
+    --border: 217 33% 22%;
+    --input: 217 33% 22%;
+    --ring: 210 40% 98%;
+}
+
+.dark body { background-color: hsl(var(--background)); color: hsl(var(--foreground)); }
+.dark .bg-white { background-color: hsl(var(--card)) !important; }
+.dark .bg-slate-50, .dark .bg-slate-100 { background-color: hsl(var(--muted)) !important; }
+.dark .bg-slate-50\/40, .dark .bg-blue-50\/40 { background-color: rgba(59,130,246,0.10) !important; }
+.dark .border-slate-200, .dark .border-slate-100 { border-color: hsl(var(--border)) !important; }
+.dark .text-slate-900 { color: hsl(var(--foreground)) !important; }
+.dark .text-slate-600, .dark .text-slate-700, .dark .text-slate-800 { color: hsl(var(--muted-foreground)) !important; }
+.dark .text-slate-500, .dark .text-slate-400 { color: hsl(var(--muted-foreground)) !important; opacity: 0.85; }
+.dark input, .dark textarea, .dark select { background-color: hsl(var(--card)); color: hsl(var(--foreground)); border-color: hsl(var(--border)); }
+.dark .data-table thead { background-color: hsl(var(--muted)); }
+.dark .hover\:bg-slate-100:hover, .dark .hover\:bg-slate-50:hover { background-color: hsl(var(--muted)) !important; }
+
 * {
     border-color: hsl(var(--border));
 }

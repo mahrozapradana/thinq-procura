@@ -118,6 +118,25 @@ async def vendor_po_detail(pid: str, user=Depends(get_current_active_user)):
     return po
 
 
+@router.get("/vendor-portal/unread-counts")
+async def vendor_unread_counts(user=Depends(get_current_active_user)):
+    """Sidebar badge counts: RFQ (draft/pending POs), PO (unacknowledged), Invoice (outstanding), Tender (open, not-bid)."""
+    vid = _require_vendor(user)
+    db = get_db()
+    q_scope = {"vendor_id": vid}
+    if user.get("is_pic"):
+        q_scope["assigned_pic_id"] = user["id"]
+    rfq = await db.pos.count_documents({**q_scope, "status": {"$in": ["draft", "pending_approval"]}, "vendor_reply": {"$exists": False}})
+    po_new = await db.pos.count_documents({**q_scope, "status": {"$in": ["approved", "sent"]}, "vendor_acknowledged": {"$ne": True}})
+    invoice_out = await db.invoices.count_documents({"vendor_id": vid, "status": {"$in": ["outstanding", "pending"]}})
+    tender = await db.tenders.count_documents({
+        "status": "open",
+        "$or": [{"invited_vendor_ids": vid}, {"invited_vendor_ids": {"$in": [None, []]}}, {"invited_vendor_ids": {"$exists": False}}],
+        "bids.vendor_id": {"$ne": vid},
+    })
+    return {"rfq": rfq, "po": po_new, "invoice": invoice_out, "tender": tender}
+
+
 @router.post("/vendor-portal/pos/{pid}/acknowledge")
 async def vendor_acknowledge_po(pid: str, user=Depends(get_current_active_user)):
     """Vendor confirms receipt of an approved/sent PO."""

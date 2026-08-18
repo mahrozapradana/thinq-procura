@@ -303,3 +303,36 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - P3: Notif digest email harian ringkasan (untuk yang matikan email realtime)
 - P4: In-app dark mode toggle per user
 
+
+## Iteration 17 – 2026-02-18 (Sidebar Badges + Digest + Dark Mode + Redis Doc)
+### Added
+- **Sidebar Badge Unread untuk Vendor**:
+  - `GET /api/vendor-portal/unread-counts` → `{rfq, po, invoice, tender}` (PIC-scoped bila `is_pic`).
+  - Layout.jsx: polling 30s + red badge di menu Tender Terbuka, RFQ / PO Menunggu, Purchase Orders, Invoice / Penagihan.
+  - Verified: vendor unread = `{rfq:0, po:0, invoice:0, tender:2}` ✓
+- **Digest Email Harian**:
+  - `GET /api/cron/notification-digest` — kirim ringkasan 24h ke user yang matikan realtime email tapi ada notifikasi.
+  - Filter: users dengan `email_prefs[type]` semua false untuk realtime types + `digest=true`.
+  - Cron `.emergent/crons.yml`: `notification-digest` daily 07:00 UTC.
+  - Response: `{ok, digest_sent, groups}` — verified 1 group processed ✓
+- **Dark Mode Toggle**:
+  - Backend: `GET|PUT /api/users/me/preferences` → `{theme: "light"|"dark"}`.
+  - Frontend: `ThemeToggle.jsx` di topbar (Sun/Moon icon), sync ke localStorage + server, apply `.dark` class ke `<html>`.
+  - CSS: 15+ dark variants di `index.css` (background, card, muted, border, text, input, table, hover states) — konsisten cross-device via server persistence.
+  - Verified: PUT theme=dark returns `{"theme":"dark"}`, toggle button + toast "Tema: Terang/Gelap" muncul ✓
+- **Redis Deployment Guide**:
+  - New file `/app/REDIS_DEPLOYMENT.md` — panduan step-by-step: sediakan Redis (DO/AWS/Docker/Upstash), install `pip install redis`, set `REDIS_URL` env, restart, opsi subscribe worker fan-in, test end-to-end multi-tab, monitoring, troubleshoot table, rollback, alternatif (Postgres LISTEN/NATS/Mongo Change Streams).
+
+### Verified via curl + Playwright
+- Preferences GET/PUT roundtrip theme=dark ✓
+- Digest cron endpoint returns 200 dengan `groups=1` ✓
+- Vendor unread counts endpoint returns valid JSON ✓
+- Screenshot admin dark mode: full UI dengan sidebar, cards, table, buttons semua adaptif ✓
+- Screenshot vendor sidebar: red badge muncul di Tender Terbuka (2) ✓
+
+### Backlog / Next
+- P3: Buyer/admin sidebar juga dapat badges untuk PR menunggu approval, PO baru, invoice outstanding
+- P3: Dark mode auto-detect via `prefers-color-scheme` media query pertama kali (sekarang default light)
+- P3: Custom theme colors per-tenant (untuk white-label enterprise deploy)
+- P4: PWA install prompt supaya app bisa di-install ke home screen mobile
+
