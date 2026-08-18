@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import Pagination from "@/components/Pagination";
 import ExportCsvButton from "@/components/ExportCsvButton";
+import { useDataTable } from "@/components/useDataTable";
 
 const STATUS = {
   outstanding:"bg-amber-100 text-amber-700",
@@ -18,9 +19,10 @@ export default function InvoicesFinance() {
   const load = () => api.get("/invoices").then(r=>setRows(r.data));
   useEffect(()=>{ load(); },[]);
   const pay = async (id) => { try{ await api.post(`/invoices/${id}/pay`); toast.success("Marked paid"); load(); }catch(e){toast.error(e.response?.data?.detail);} };
-  const total = rows.length;
+  const dt = useDataTable(rows, { storageKey: "invoices", defaultSort: { key: "due_date", dir: "asc" } });
+  const total = dt.sortedRows.length;
   const pages = Math.max(1, Math.ceil(total/perPage));
-  const paged = rows.slice((page-1)*perPage, page*perPage);
+  const paged = dt.sortedRows.slice((page-1)*perPage, page*perPage);
 
   return (
     <div className="space-y-4" data-testid="invoices-finance-page">
@@ -34,9 +36,28 @@ export default function InvoicesFinance() {
           {key:"amount",label:"Amount"},{key:"is_bonded",label:"Bonded"},{key:"due_date",label:"Due Date"},{key:"status",label:"Status"},
         ]}/>
       </div>
+      <dt.SavedViewsBar/>
       <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
-          <thead><tr><th>No Invoice</th><th>PO</th><th>Vendor</th><th>Amount</th><th>Bonded</th><th>Due Date</th><th>Status</th><th></th></tr></thead>
+          <thead>
+            <tr>
+              <dt.SortHeader k="invoice_number">No Invoice</dt.SortHeader>
+              <dt.SortHeader k="po_number">PO</dt.SortHeader>
+              <dt.SortHeader k="vendor_id">Vendor</dt.SortHeader>
+              <dt.SortHeader k="amount">Amount</dt.SortHeader>
+              <th>Bonded</th>
+              <dt.SortHeader k="due_date">Due Date</dt.SortHeader>
+              <dt.SortHeader k="status">Status</dt.SortHeader>
+              <th></th>
+            </tr>
+            <dt.FilterRow cols={[
+              {key:"invoice_number",label:"No Inv"},{key:"po_number",label:"PO"},{key:"vendor_id",label:"Vendor"},
+              {key:"amount",label:"Amt",filter:"range"},{filter:false},
+              {key:"due_date",label:"Due",filter:"range-date"},
+              {key:"status",filter:"dropdown",options:["outstanding","paid","overdue"]},
+              {filter:false},
+            ]}/>
+          </thead>
           <tbody>
             {rows.length===0 && <tr><td colSpan={8} className="text-center py-6 text-slate-400">Tidak ada invoice</td></tr>}
             {paged.map(i=>(

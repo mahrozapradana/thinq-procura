@@ -44,6 +44,7 @@ from routes_fx import router as fx_router
 from routes_digest import router as digest_router
 from routes_dns_wizard import router as dns_wizard_router
 from routes_ab_analytics import router as ab_router
+from routes_import import router as import_router
 
 
 logging.basicConfig(
@@ -150,6 +151,7 @@ app.include_router(fx_router)
 app.include_router(digest_router)
 app.include_router(dns_wizard_router)
 app.include_router(ab_router)
+app.include_router(import_router)
 
 
 # ---------- CORS ----------

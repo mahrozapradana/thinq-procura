@@ -21,6 +21,23 @@ export function useDataTable(rows, { storageKey, defaultSort } = {}) {
     return (rows || []).filter(r => {
       return Object.entries(filters).every(([k, v]) => {
         if (v === "" || v == null) return true;
+        // Range filter: { min, max }
+        if (typeof v === "object" && (v.min != null || v.max != null)) {
+          const num = parseFloat(r[k]);
+          if (!isNaN(num)) {
+            if (v.min !== "" && v.min != null && num < parseFloat(v.min)) return false;
+            if (v.max !== "" && v.max != null && num > parseFloat(v.max)) return false;
+            return true;
+          }
+          // Date string range
+          const val = String(r[k] || "");
+          if (v.min && val < String(v.min)) return false;
+          if (v.max && val > String(v.max)) return false;
+          return true;
+        }
+        // Dropdown: exact match
+        if (typeof v === "object" && v.eq != null) return String(r[k] ?? "") === String(v.eq);
+        // Text: substring
         const cell = String(r[k] ?? "").toLowerCase();
         return cell.includes(String(v).toLowerCase());
       });
@@ -69,17 +86,39 @@ export function useDataTable(rows, { storageKey, defaultSort } = {}) {
     </th>
   );
 
-  const FilterInput = ({ k, placeholder = "" }) => (
-    <input value={filters[k] || ""} onChange={e => setFilter(k, e.target.value)}
-      placeholder={placeholder || "Filter..."} className="w-full text-[11px] px-1.5 py-1 border border-slate-200 rounded"
-      data-testid={`filter-${k}`}/>
-  );
+  const FilterInput = ({ k, placeholder = "", type = "text", options }) => {
+    if (type === "dropdown" && options) {
+      const cur = filters[k]?.eq ?? "";
+      return (
+        <select value={cur} onChange={e => setFilter(k, e.target.value ? { eq: e.target.value } : "")}
+          className="w-full text-[11px] px-1 py-1 border border-slate-200 rounded bg-white" data-testid={`filter-${k}`}>
+          <option value="">Semua</option>
+          {options.map(o => <option key={o.value ?? o} value={o.value ?? o}>{o.label ?? o}</option>)}
+        </select>
+      );
+    }
+    if (type === "range" || type === "range-date") {
+      const cur = filters[k] || {};
+      const inputType = type === "range-date" ? "date" : "number";
+      return (
+        <div className="flex gap-0.5">
+          <input type={inputType} value={cur.min || ""} onChange={e => setFilter(k, { ...cur, min: e.target.value })} placeholder="min" className="w-1/2 text-[10px] px-1 py-1 border border-slate-200 rounded" data-testid={`filter-${k}-min`}/>
+          <input type={inputType} value={cur.max || ""} onChange={e => setFilter(k, { ...cur, max: e.target.value })} placeholder="max" className="w-1/2 text-[10px] px-1 py-1 border border-slate-200 rounded" data-testid={`filter-${k}-max`}/>
+        </div>
+      );
+    }
+    return (
+      <input value={filters[k] || ""} onChange={e => setFilter(k, e.target.value)}
+        placeholder={placeholder || "Filter..."} className="w-full text-[11px] px-1.5 py-1 border border-slate-200 rounded"
+        data-testid={`filter-${k}`}/>
+    );
+  };
 
   const FilterRow = ({ cols }) => (
     <tr className="bg-slate-50 border-t border-slate-200">
       {cols.map((c, i) => (
         <th key={i} className="px-2 py-1 font-normal">
-          {c.filter !== false ? <FilterInput k={c.key || i} placeholder={c.label}/> : null}
+          {c.filter !== false ? <FilterInput k={c.key || i} placeholder={c.label} type={c.filter} options={c.options}/> : null}
         </th>
       ))}
     </tr>

@@ -242,10 +242,37 @@ async def vendor_rfq_reply(pid: str, payload: RFQReplyIn, user=Depends(get_curre
     return {"ok": True, "reply": reply_doc}
 
 
+class BidItemIn(BaseModel):
+    item_index: int
+    can_fulfill: bool = True
+    qty_offered: Optional[float] = None  # bila vendor hanya sanggup sebagian
+    price: Optional[float] = None  # harga per unit
+    notes: Optional[str] = None
+
+
 class BidIn(BaseModel):
-    price: float
+    price: float  # total
     delivery_days: Optional[int] = None
     notes: Optional[str] = None
+    items: List[BidItemIn] = []
+
+
+@router.get("/vendor-portal/tenders/{tid}")
+async def vendor_tender_detail(tid: str, user=Depends(get_current_active_user)):
+    vid = _require_vendor(user)
+    db = get_db()
+    t = await db.tenders.find_one({"id": tid}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Tender not found")
+    # Only allow if vendor is invited or tender is public/open
+    invited = t.get("invited_vendor_ids") or []
+    if invited and vid not in invited and not any(b.get("vendor_id") == vid for b in (t.get("bids") or [])):
+        raise HTTPException(403, "Tender bukan untuk Anda")
+    # Hide competitor bids
+    my_bid = next((b for b in (t.get("bids") or []) if b.get("vendor_id") == vid), None)
+    t.pop("bids", None)
+    t["my_bid"] = my_bid
+    return t
 
 
 @router.post("/vendor-portal/tenders/{tid}/bid")
@@ -265,6 +292,7 @@ async def submit_bid(tid: str, payload: BidIn, user=Depends(get_current_active_u
         "price": payload.price,
         "delivery_days": payload.delivery_days,
         "notes": payload.notes,
+        "items": [i.model_dump() for i in payload.items],
         "status": "submitted",
         "submitted_at": now_iso(),
     })

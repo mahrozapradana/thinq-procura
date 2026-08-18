@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { Plus, Trash2, Eye, PlayCircle, Award, StopCircle } from "lucide-react";
 import Pagination from "@/components/Pagination";
 import ExportCsvButton from "@/components/ExportCsvButton";
+import { useDataTable } from "@/components/useDataTable";
 
 const STATUS_STYLE = {
   open:"bg-emerald-100 text-emerald-700",
@@ -28,9 +29,10 @@ export default function Tenders() {
   const [form, setForm] = useState({ items:[], invited_vendor_ids:[], is_bonded:false });
   const [page, setPage] = useState(1);
   const perPage = 10;
-  const total = rows.length;
+  const dt = useDataTable(rows, { storageKey: "tenders", defaultSort: { key: "created_at", dir: "desc" } });
+  const total = dt.sortedRows.length;
   const pages = Math.max(1, Math.ceil(total/perPage));
-  const paged = rows.slice((page-1)*perPage, page*perPage);
+  const paged = dt.sortedRows.slice((page-1)*perPage, page*perPage);
 
   const load = () => api.get("/tenders").then(r=>setRows(r.data));
   useEffect(()=>{ load(); api.get("/products").then(r=>setProducts(r.data)); api.get("/vendors?status=approved&exclude_blacklisted=true").then(r=>setVendors(r.data));},[]);
