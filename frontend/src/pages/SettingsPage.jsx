@@ -67,6 +67,39 @@ export default function SettingsPage() {
               <div><Label className="label-tiny">Currency</Label><Input value={c.currency||"IDR"} onChange={e=>setC({...c,currency:e.target.value})} data-testid="cs-currency"/></div>
             </div>
             <div><Label className="label-tiny">Alamat</Label><Textarea value={c.address||""} onChange={e=>setC({...c,address:e.target.value})} data-testid="cs-address"/></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="label-tiny">Logo Perusahaan (untuk PDF PO)</Label>
+                <input type="file" accept=".png,.jpg,.jpeg,.webp" onChange={async(e)=>{
+                  const f = e.target.files?.[0]; if(!f) return;
+                  const fd = new FormData(); fd.append("file", f);
+                  const t = localStorage.getItem("access_token");
+                  const r = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/uploads/attachment`, { method:"POST", credentials:"include", headers: t?{Authorization:`Bearer ${t}`}:{}, body: fd });
+                  const d = await r.json();
+                  if(!r.ok) return toast.error(d.detail);
+                  setC({...c, logo_url: d.url});
+                  await api.put("/settings/branding", { logo_url: d.url });
+                  toast.success("Logo diupload");
+                }} data-testid="cs-logo-input" className="mt-1 block text-xs"/>
+                {c.logo_url && <img src={c.logo_url} alt="logo" className="mt-2 h-16 border rounded"/>}
+              </div>
+              <div>
+                <Label className="label-tiny">Tanda Tangan Digital</Label>
+                <input type="file" accept=".png,.jpg,.jpeg" onChange={async(e)=>{
+                  const f = e.target.files?.[0]; if(!f) return;
+                  const fd = new FormData(); fd.append("file", f);
+                  const t = localStorage.getItem("access_token");
+                  const r = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/uploads/attachment`, { method:"POST", credentials:"include", headers: t?{Authorization:`Bearer ${t}`}:{}, body: fd });
+                  const d = await r.json();
+                  if(!r.ok) return toast.error(d.detail);
+                  setC({...c, signature_url: d.url});
+                  await api.put("/settings/branding", { signature_url: d.url });
+                  toast.success("Signature diupload");
+                }} data-testid="cs-sig-input" className="mt-1 block text-xs"/>
+                {c.signature_url && <img src={c.signature_url} alt="sig" className="mt-2 h-16 border rounded"/>}
+                <Input placeholder="Nama penandatangan" value={c.signature_name||""} onChange={async(e)=>{setC({...c,signature_name:e.target.value});}} onBlur={async(e)=>{ if(e.target.value) await api.put("/settings/branding", { signature_name: e.target.value }); }} className="mt-2 text-xs" data-testid="cs-sig-name"/>
+              </div>
+            </div>
             <div className="flex items-center justify-between border border-slate-200 rounded p-3">
               <div>
                 <div className="text-sm font-semibold">Kawasan Berikat (Bonded Zone)</div>

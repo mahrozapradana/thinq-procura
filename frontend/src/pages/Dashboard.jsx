@@ -94,6 +94,44 @@ export default function Dashboard() {
           </tbody>
         </table>
       </div>
+
+      {/* Vendor Analytics */}
+      <VendorAnalytics/>
+    </div>
+  );
+}
+
+function VendorAnalytics() {
+  const [rows, setRows] = useState([]);
+  useEffect(() => { import("@/lib/api").then(m => m.default.get("/dashboard/vendor-analytics").then(r => setRows(r.data))); }, []);
+  return (
+    <div className="bg-white border border-slate-200 rounded-md" data-testid="vendor-analytics">
+      <div className="px-6 py-4 border-b border-slate-200">
+        <div className="label-tiny">Performance</div>
+        <div className="font-heading text-lg font-bold">Vendor Analytics</div>
+        <div className="text-xs text-slate-500">Ranking berdasarkan total nilai PO, rating, on-time delivery, dan status invoice.</div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="data-table" style={{ minWidth: 1000 }}>
+          <thead><tr><th>#</th><th>Vendor</th><th>PO Count</th><th>Completed</th><th>Total Value</th><th>Rating</th><th>On-Time %</th><th>Invoice Paid</th><th>Outstanding</th></tr></thead>
+          <tbody>
+            {rows.length===0 && <tr><td colSpan={9} className="text-center py-6 text-slate-400">Belum ada data</td></tr>}
+            {rows.map((v,i) => (
+              <tr key={v.vendor_id} data-testid={`va-row-${v.vendor_id}`} className={v.blacklisted?"bg-red-50/40":""}>
+                <td className="font-mono text-xs">{i+1}</td>
+                <td className="font-semibold whitespace-nowrap">{v.vendor_name} {v.blacklisted && <span className="text-[10px] px-1 rounded bg-red-100 text-red-700 ml-1">BL</span>}</td>
+                <td>{v.po_count}</td>
+                <td>{v.po_completed}</td>
+                <td className="font-mono font-semibold">{fmtIDR(v.total_value)}</td>
+                <td>{v.avg_rating ? `${v.avg_rating}★ (${v.ratings_count})` : "-"}</td>
+                <td className={`font-mono ${v.on_time_pct != null && v.on_time_pct < 80 ? "text-red-600" : "text-emerald-600"}`}>{v.on_time_pct != null ? `${v.on_time_pct}%` : "-"}</td>
+                <td className="font-mono text-emerald-700">{fmtIDR(v.invoice_paid)}</td>
+                <td className="font-mono text-amber-700">{fmtIDR(v.invoice_outstanding)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

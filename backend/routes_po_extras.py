@@ -12,7 +12,8 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
+import requests as _rq
 
 from auth_utils import get_current_active_user, hash_password
 from db_models import get_db, new_id, now_iso
@@ -40,7 +41,23 @@ async def po_print_pdf(po_id: str, user=Depends(get_current_active_user)):
     title_style = ParagraphStyle("t", parent=styles["Title"], fontSize=16, textColor=colors.HexColor("#0F172A"))
     label_style = ParagraphStyle("lb", parent=styles["Normal"], textColor=colors.HexColor("#94A3B8"), fontSize=8)
     val_style = ParagraphStyle("v", parent=styles["Normal"], fontSize=10, textColor=colors.HexColor("#0F172A"))
-    story = [Paragraph(f"#{po.get('po_number')}", title_style), Spacer(1, 8)]
+    story = []
+    company = await db.company_settings.find_one({"id": "singleton-company"}, {"_id": 0}) or {}
+    if company.get("logo_url"):
+        try:
+            r = _rq.get(company["logo_url"], timeout=10)
+            if r.ok:
+                logo_buf = io.BytesIO(r.content)
+                logo = RLImage(logo_buf, width=3*cm, height=1.5*cm, kind="proportional")
+                story.append(logo)
+                story.append(Spacer(1, 6))
+        except Exception:
+            pass
+    if company.get("name"):
+        story.append(Paragraph(f"<b>{company['name']}</b>", val_style))
+        story.append(Spacer(1, 4))
+    story.append(Paragraph(f"#{po.get('po_number')}", title_style))
+    story.append(Spacer(1, 8))
     header = [
         [Paragraph("Vendor", label_style), Paragraph(vendor.get("company_name") or "-", val_style),
          Paragraph("Order Date", label_style), Paragraph((po.get("order_date") or "-")[:10], val_style)],
@@ -91,6 +108,19 @@ async def po_print_pdf(po_id: str, user=Depends(get_current_active_user)):
     if po.get("notes"):
         story.append(Spacer(1, 12))
         story.append(Paragraph(f"<b>Terms and Conditions:</b> {po['notes']}", val_style))
+    # Signature footer
+    if company.get("signature_url"):
+        try:
+            story.append(Spacer(1, 24))
+            r = _rq.get(company["signature_url"], timeout=10)
+            if r.ok:
+                sig_buf = io.BytesIO(r.content)
+                sig = RLImage(sig_buf, width=4*cm, height=2*cm, kind="proportional")
+                story.append(sig)
+                story.append(Paragraph(f"<b>{company.get('signature_name') or 'Authorized Signature'}</b>", val_style))
+                story.append(Paragraph(f"<font size=8 color=#94A3B8>{company.get('name') or ''}</font>", val_style))
+        except Exception:
+            pass
     doc.build(story)
     buf.seek(0)
     return StreamingResponse(buf, media_type="application/pdf",
@@ -136,6 +166,29 @@ async def post_po_message(po_id: str, payload: ChatIn, user=Depends(get_current_
     }
     await db.po_messages.insert_one(msg)
     msg.pop("_id", None)
+    # Notify counterpart via email in background
+    try:
+        from notifications import send_email
+        recipients: list[str] = []
+        if user["role"] == "vendor":
+            # Notify buyer (procurement + admin) - use created_by
+            buyer = await db.users.find_one({"id": po.get("created_by")}, {"email": 1})
+            if buyer and buyer.get("email"):
+                recipients.append(buyer["email"])
+        else:
+            # Notify vendor user
+            vendor_user = await db.users.find_one({"vendor_id": po.get("vendor_id"), "is_pic": {"$ne": True}}, {"email": 1})
+            if vendor_user and vendor_user.get("email"):
+                recipients.append(vendor_user["email"])
+            if po.get("assigned_pic_id"):
+                pic = await db.users.find_one({"id": po["assigned_pic_id"]}, {"email": 1})
+                if pic and pic.get("email"):
+                    recipients.append(pic["email"])
+        if recipients:
+            await send_email(recipients, f"[Procura] Pesan baru di PO {po.get('po_number')}",
+                f"<p><b>{user['name']}</b> ({user['role']}) mengirim pesan di PO <b>{po.get('po_number')}</b>:</p><blockquote style='border-left:3px solid #0F172A;padding:8px 12px;background:#F8FAFC'>{payload.text}</blockquote>")
+    except Exception:
+        pass
     return msg
 
 

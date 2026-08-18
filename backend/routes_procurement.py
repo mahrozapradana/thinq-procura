@@ -396,6 +396,7 @@ class POCreateIn(BaseModel):
     vendor_forecast: Optional[str] = None
     tax_percent: float = 11.0
     dpp_nilai_lain: float = 0.0
+    assigned_pic_id: Optional[str] = None
 
 
 @router.get("/pos")
@@ -411,6 +412,8 @@ async def list_pos(
     query: dict = {}
     if user["role"] == "vendor":
         query["vendor_id"] = user.get("vendor_id")
+        if user.get("is_pic"):
+            query["assigned_pic_id"] = user["id"]
     if status:
         query["status"] = status
     if po_type:
@@ -518,6 +521,7 @@ async def create_po(payload: POCreateIn, user=Depends(get_current_active_user)):
         "shipping_status": "pending",
         "invoice_status": "pending",
         "notes": payload.notes,
+        "assigned_pic_id": payload.assigned_pic_id,
         "created_by": user["id"],
         "created_at": now_iso(),
     }
