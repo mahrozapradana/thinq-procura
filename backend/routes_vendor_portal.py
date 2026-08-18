@@ -1,7 +1,7 @@
 """Vendor portal: self-registration + vendor-facing endpoints."""
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
@@ -132,7 +132,7 @@ async def vendor_unread_counts(user=Depends(get_current_active_user)):
     tender = await db.tenders.count_documents({
         "status": "open",
         "$or": [{"invited_vendor_ids": vid}, {"invited_vendor_ids": {"$in": [None, []]}}, {"invited_vendor_ids": {"$exists": False}}],
-        "bids.vendor_id": {"$ne": vid},
+        "bids": {"$not": {"$elemMatch": {"vendor_id": vid, "status": "submitted"}}},
     })
     return {"rfq": rfq, "po": po_new, "invoice": invoice_out, "tender": tender}
 
@@ -250,11 +250,20 @@ class BidItemIn(BaseModel):
     notes: Optional[str] = None
 
 
+class BidAttachmentIn(BaseModel):
+    url: str
+    filename: str
+    size: Optional[int] = None
+    content_type: Optional[str] = None
+
+
 class BidIn(BaseModel):
     price: float  # total
     delivery_days: Optional[int] = None
     notes: Optional[str] = None
     items: List[BidItemIn] = []
+    attachments: List[BidAttachmentIn] = []
+    is_draft: bool = False
 
 
 @router.get("/vendor-portal/tenders/{tid}")
@@ -293,11 +302,58 @@ async def submit_bid(tid: str, payload: BidIn, user=Depends(get_current_active_u
         "delivery_days": payload.delivery_days,
         "notes": payload.notes,
         "items": [i.model_dump() for i in payload.items],
-        "status": "submitted",
+        "attachments": [a.model_dump() for a in payload.attachments],
+        "status": "draft" if payload.is_draft else "submitted",
         "submitted_at": now_iso(),
     })
     await db.tenders.update_one({"id": tid}, {"$set": {"bids": bids}})
-    return {"ok": True}
+    return {"ok": True, "is_draft": payload.is_draft}
+
+
+@router.get("/vendor-portal/tenders/{tid}/price-suggestions")
+async def tender_price_suggestions(tid: str, user=Depends(get_current_active_user)):
+    """Historical PO price stats per tender item — helps vendor propose fair-range bid."""
+    vid = _require_vendor(user)
+    db = get_db()
+    t = await db.tenders.find_one({"id": tid}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Tender not found")
+    invited = t.get("invited_vendor_ids") or []
+    if invited and vid not in invited and not any(b.get("vendor_id") == vid for b in (t.get("bids") or [])):
+        raise HTTPException(403, "Tender bukan untuk Anda")
+    out: Dict[str, Any] = {}
+    for it in (t.get("items") or []):
+        pid = it.get("product_id")
+        if not pid:
+            continue
+        prices: List[float] = []
+        last_price: Optional[float] = None
+        last_at: Optional[str] = None
+        po_cursor = db.pos.find(
+            {"items.product_id": pid, "status": {"$in": ["approved", "sent", "partial", "completed"]}},
+            {"_id": 0, "items": 1, "created_at": 1, "po_number": 1},
+        ).sort("created_at", -1).limit(50)
+        async for po in po_cursor:
+            for pit in (po.get("items") or []):
+                if pit.get("product_id") == pid:
+                    p = float(pit.get("price") or 0)
+                    if p > 0:
+                        prices.append(p)
+                        if last_price is None:
+                            last_price = p
+                            last_at = po.get("created_at")
+        if not prices:
+            out[pid] = {"count": 0, "avg": None, "min": None, "max": None, "last": None, "last_at": None}
+        else:
+            out[pid] = {
+                "count": len(prices),
+                "avg": round(sum(prices) / len(prices), 2),
+                "min": min(prices),
+                "max": max(prices),
+                "last": last_price,
+                "last_at": last_at,
+            }
+    return {"tender_id": tid, "suggestions": out}
 
 
 @router.post("/vendor-portal/tenders/{tid}/decline")

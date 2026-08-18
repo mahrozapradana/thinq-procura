@@ -435,3 +435,20 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - Bulk Actions dengan checkbox (P4)
 - Saved Views user-preset (P5)
 
+
+## Iteration 24 – 2026-02-18 (Vendor Bid UX Pack: Auto-Suggest, Countdown, Attachments, Draft)
+### Added
+- **Auto-Suggest Harga Bid (P0)**: New `GET /api/vendor-portal/tenders/{tid}/price-suggestions` — returns per-product historical PO stats `{avg, min, max, last, last_at, count}` scanning last 50 approved/sent/partial/completed POs. Bid dialog now shows a "Rentang Wajar" column per item + red/amber/green hint under price input (`↑ N% di atas rata-rata` if >15% over max, `↓ N% di bawah` if <15% below min, green "Dalam rentang wajar" otherwise).
+- **Deadline Countdown (P0)**: New reusable `/app/frontend/src/components/Countdown.jsx` — live-updating pill with color states (green >2 days, amber <2 days, red <6 hours w/ animate-pulse, slate "Lewat" once passed). Applied in tender table (Deadline column), bid dialog header, and detail sheet (size="md").
+- **Multi-File Attachment for Bids (P1)**: `BidIn.attachments: List[{url, filename, size, content_type}]` model. Frontend uses existing `/api/uploads/attachment` (Supabase). Dialog has drag-drop-style upload panel with per-file delete X. Attachments render as clickable links in detail sheet under "Lampiran:".
+- **Bid Draft Save (P1)**: `BidIn.is_draft: bool`. Draft bids stored with `status="draft"` — otherwise `"submitted"`. Reopening the dialog auto-loads the draft and shows amber "Memuat draft yang tersimpan" banner. `/api/vendor-portal/unread-counts` updated to exclude only submitted bids (`$elemMatch: {vendor_id, status:"submitted"}`) so drafts still surface tender as pending.
+### Verified via testing agent
+- Backend: 5/5 pytest (`/app/backend/tests/test_iteration3_vendor_bid.py`)
+- Frontend Playwright: countdown "Sisa 3h 4j" green ✓, price hint red/green ✓, draft persisted + banner on reload ✓, attachment upload+link ✓
+### Backlog / Next
+- P2: Server-side deadline enforcement in `submit_bid` (currently only checks status=='open')
+- P2: Cache price-suggestions per tender-id session-side
+- P3: Radix a11y DialogTitle/Description polish (non-blocking warnings)
+- P3: Mongo aggregation for price-suggestions on large history datasets
+- P4: Refactor `server.py` breakdown → routes folder
+

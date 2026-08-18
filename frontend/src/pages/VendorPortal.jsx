@@ -7,11 +7,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Send, XCircle, Plus, FileUp, Upload, Eye, Clock } from "lucide-react";
+import { Send, XCircle, Plus, FileUp, Upload, Eye, Clock, Save, Paperclip, X, Info } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import Pagination from "@/components/Pagination";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import { useDataTable } from "@/components/useDataTable";
+import Countdown from "@/components/Countdown";
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 async function uploadFile(file) {
@@ -133,7 +134,10 @@ export function VendorHome() {
 export function VendorTenders() {
   const [rows, setRows] = useState([]);
   const [bidOn, setBidOn] = useState(null);
-  const [bid, setBid] = useState({ items: [] });
+  const [bid, setBid] = useState({ items: [], attachments: [] });
+  const [suggestions, setSuggestions] = useState({}); // { product_id: {avg,min,max,last,count} }
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [detailId, setDetailId] = useState(null);
   const [detail, setDetail] = useState(null);
   const load = () => api.get("/vendor-portal/tenders").then(r=>setRows(r.data));
@@ -149,6 +153,7 @@ export function VendorTenders() {
       notes: full.my_bid?.notes || "",
       items: (full.items||[]).map((it, i) => ({
         item_index: i,
+        product_id: it.product_id,
         product_name: it.product_name,
         qty_requested: it.qty,
         can_fulfill: full.my_bid?.items?.[i]?.can_fulfill ?? true,
@@ -156,19 +161,49 @@ export function VendorTenders() {
         price: full.my_bid?.items?.[i]?.price ?? it.price,
         notes: full.my_bid?.items?.[i]?.notes || "",
       })),
+      attachments: full.my_bid?.attachments || [],
     });
-  };
-  const submit = async () => {
+    // Fetch price suggestions (fair-range) — non-blocking
+    setSuggestions({});
     try {
+      const s = await api.get(`/vendor-portal/tenders/${t.id}/price-suggestions`);
+      setSuggestions(s.data.suggestions || {});
+    } catch(e) { /* ignore */ }
+  };
+  const doSubmit = async (isDraft) => {
+    try {
+      setSaving(true);
       const totalPrice = bid.items.reduce((s,i)=>s + (i.can_fulfill ? parseFloat(i.price||0)*parseFloat(i.qty_offered||0) : 0), 0);
       await api.post(`/vendor-portal/tenders/${bidOn.id}/bid`, {
         price: totalPrice || parseFloat(bid.price||0),
         delivery_days: parseInt(bid.delivery_days||0),
         notes: bid.notes,
         items: bid.items.map(i=>({ item_index:i.item_index, can_fulfill:i.can_fulfill, qty_offered:parseFloat(i.qty_offered||0), price:parseFloat(i.price||0), notes:i.notes })),
+        attachments: bid.attachments || [],
+        is_draft: !!isDraft,
       });
-      toast.success("Bid disubmit"); setBidOn(null); setBid({items:[]}); load();
-    } catch(e){ toast.error(e.response?.data?.detail); }
+      toast.success(isDraft ? "Draft bid disimpan" : "Bid disubmit");
+      setBidOn(null); setBid({items:[], attachments:[]}); setSuggestions({}); load();
+    } catch(e){ toast.error(e.response?.data?.detail || "Gagal menyimpan"); }
+    finally { setSaving(false); }
+  };
+  const submit = () => doSubmit(false);
+  const saveDraft = () => doSubmit(true);
+  const uploadAttachment = async (file) => {
+    setUploading(true);
+    try {
+      const fd = new FormData(); fd.append("file", file);
+      const t = localStorage.getItem("epr-token");
+      const res = await fetch(`${API_URL}/api/uploads/attachment`, { method:"POST", credentials:"include", headers: t?{Authorization:`Bearer ${t}`}:{}, body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Upload gagal");
+      setBid(prev => ({...prev, attachments: [...(prev.attachments||[]), { url: data.url, filename: data.filename, size: data.size, content_type: data.content_type }]}));
+      toast.success(`${file.name} terunggah`);
+    } catch(e){ toast.error(e.message || "Upload gagal"); }
+    finally { setUploading(false); }
+  };
+  const removeAttachment = (idx) => {
+    setBid(prev => ({...prev, attachments: (prev.attachments||[]).filter((_,i)=>i!==idx)}));
   };
   const decline = async (id) => { await api.post(`/vendor-portal/tenders/${id}/decline`); toast.success("Ditolak"); load(); };
   return (
@@ -183,7 +218,7 @@ export function VendorTenders() {
               <tr key={t.id} data-testid={`vt-row-${t.id}`}>
                 <td className="font-mono text-xs" data-label="No">{t.tender_number}</td>
                 <td data-label="Judul">{t.title}</td>
-                <td className="text-xs" data-label="Deadline">{t.deadline||"-"}</td>
+                <td className="text-xs" data-label="Deadline"><Countdown deadline={t.deadline}/></td>
                 <td data-label="Items">{t.items?.length}</td>
                 <td data-label="Status"><span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS[t.status]}`}>{t.status}</span></td>
                 <td className="text-right whitespace-nowrap" data-label="Aksi">
@@ -209,7 +244,7 @@ export function VendorTenders() {
               <div className="mt-4 space-y-3 text-sm">
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div><div className="label-tiny">Status</div><span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS[detail.status]}`}>{detail.status}</span></div>
-                  <div><div className="label-tiny">Deadline</div>{detail.deadline || "-"}</div>
+                  <div><div className="label-tiny">Deadline</div><Countdown deadline={detail.deadline} size="md"/></div>
                   <div className="col-span-2"><div className="label-tiny">Deskripsi</div>{detail.description || "-"}</div>
                 </div>
                 <div className="border border-slate-200 rounded overflow-x-auto">
@@ -225,6 +260,11 @@ export function VendorTenders() {
                 {detail.my_bid && (
                   <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs">
                     <b>Bid Anda</b>: Total Rp {(detail.my_bid.price||0).toLocaleString("id-ID")} · {detail.my_bid.delivery_days} hari · Status <b>{detail.my_bid.status}</b>
+                    {(detail.my_bid.attachments||[]).length > 0 && (
+                      <div className="mt-1">Lampiran: {(detail.my_bid.attachments||[]).map((a,i)=>(
+                        <a key={i} href={a.url} target="_blank" rel="noreferrer" className="underline mr-2">{a.filename}</a>
+                      ))}</div>
+                    )}
                   </div>
                 )}
               </div>
@@ -234,35 +274,96 @@ export function VendorTenders() {
       </Sheet>
 
       <Dialog open={!!bidOn} onOpenChange={(v)=>!v && setBidOn(null)}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader><DialogTitle>Submit Bid — {bidOn?.tender_number}</DialogTitle></DialogHeader>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <span>Submit Bid — {bidOn?.tender_number}</span>
+              {bidOn?.deadline && <Countdown deadline={bidOn.deadline}/>}
+            </DialogTitle>
+          </DialogHeader>
           <div className="space-y-3">
             <div className="border border-slate-200 rounded overflow-x-auto max-h-72">
               <table className="data-table">
-                <thead><tr><th>Item</th><th>Qty Diminta</th><th>Sanggup</th><th>Qty Sanggup</th><th>Harga/Unit</th><th>Catatan</th></tr></thead>
+                <thead><tr><th>Item</th><th>Qty Diminta</th><th>Sanggup</th><th>Qty Sanggup</th><th>Harga/Unit</th><th>Rentang Wajar</th><th>Catatan</th></tr></thead>
                 <tbody>
-                  {bid.items.map((it,i)=>(
-                    <tr key={i}>
-                      <td className="text-xs">{it.product_name}</td>
-                      <td className="text-xs">{it.qty_requested}</td>
-                      <td><input type="checkbox" checked={it.can_fulfill} onChange={e=>{const items=[...bid.items];items[i]={...items[i],can_fulfill:e.target.checked};setBid({...bid,items});}} data-testid={`vt-bid-fulfill-${i}`}/></td>
-                      <td><Input type="number" value={it.qty_offered} disabled={!it.can_fulfill} onChange={e=>{const items=[...bid.items];items[i]={...items[i],qty_offered:e.target.value};setBid({...bid,items});}} className="h-8 text-xs w-20" data-testid={`vt-bid-qty-${i}`}/></td>
-                      <td><Input type="number" value={it.price} disabled={!it.can_fulfill} onChange={e=>{const items=[...bid.items];items[i]={...items[i],price:e.target.value};setBid({...bid,items});}} className="h-8 text-xs w-28 font-mono" data-testid={`vt-bid-price-${i}`}/></td>
-                      <td><Input value={it.notes} disabled={!it.can_fulfill} onChange={e=>{const items=[...bid.items];items[i]={...items[i],notes:e.target.value};setBid({...bid,items});}} className="h-8 text-xs" data-testid={`vt-bid-notes-${i}`}/></td>
-                    </tr>
-                  ))}
+                  {bid.items.map((it,i)=>{
+                    const s = suggestions[it.product_id];
+                    const price = parseFloat(it.price||0);
+                    let priceHint = null;
+                    if (s && s.count > 0) {
+                      if (price > 0 && s.max && price > s.max * 1.15) priceHint = { cls: "text-red-600", text: `↑ ${((price/s.avg-1)*100).toFixed(0)}% di atas rata-rata` };
+                      else if (price > 0 && s.min && price < s.min * 0.85) priceHint = { cls: "text-amber-600", text: `↓ ${((1-price/s.avg)*100).toFixed(0)}% di bawah rata-rata` };
+                      else if (price > 0) priceHint = { cls: "text-emerald-600", text: "Dalam rentang wajar" };
+                    }
+                    return (
+                      <tr key={i}>
+                        <td className="text-xs">{it.product_name}</td>
+                        <td className="text-xs">{it.qty_requested}</td>
+                        <td><input type="checkbox" checked={it.can_fulfill} onChange={e=>{const items=[...bid.items];items[i]={...items[i],can_fulfill:e.target.checked};setBid({...bid,items});}} data-testid={`vt-bid-fulfill-${i}`}/></td>
+                        <td><Input type="number" value={it.qty_offered} disabled={!it.can_fulfill} onChange={e=>{const items=[...bid.items];items[i]={...items[i],qty_offered:e.target.value};setBid({...bid,items});}} className="h-8 text-xs w-20" data-testid={`vt-bid-qty-${i}`}/></td>
+                        <td>
+                          <Input type="number" value={it.price} disabled={!it.can_fulfill} onChange={e=>{const items=[...bid.items];items[i]={...items[i],price:e.target.value};setBid({...bid,items});}} className="h-8 text-xs w-28 font-mono" data-testid={`vt-bid-price-${i}`}/>
+                          {priceHint && <div className={`text-[10px] mt-0.5 ${priceHint.cls}`} data-testid={`vt-bid-hint-${i}`}>{priceHint.text}</div>}
+                        </td>
+                        <td className="text-[10px] font-mono leading-tight" data-testid={`vt-bid-range-${i}`}>
+                          {s && s.count > 0 ? (
+                            <div className="space-y-0.5">
+                              <div className="text-emerald-700">avg {fmtIDR(s.avg)}</div>
+                              <div className="text-slate-500">min {fmtIDR(s.min)} · max {fmtIDR(s.max)}</div>
+                              <div className="text-slate-400">{s.count} PO histori</div>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 italic">Belum ada histori</span>
+                          )}
+                        </td>
+                        <td><Input value={it.notes} disabled={!it.can_fulfill} onChange={e=>{const items=[...bid.items];items[i]={...items[i],notes:e.target.value};setBid({...bid,items});}} className="h-8 text-xs" data-testid={`vt-bid-notes-${i}`}/></td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
             <div className="flex justify-end text-sm font-heading font-bold">
-              Total Bid: <span className="ml-2 font-mono">{fmtIDR(bid.items.reduce((s,i)=>s+(i.can_fulfill?parseFloat(i.price||0)*parseFloat(i.qty_offered||0):0),0))}</span>
+              Total Bid: <span className="ml-2 font-mono" data-testid="vt-bid-total">{fmtIDR(bid.items.reduce((s,i)=>s+(i.can_fulfill?parseFloat(i.price||0)*parseFloat(i.qty_offered||0):0),0))}</span>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div><Label className="label-tiny">Estimasi Pengiriman (hari)</Label><Input type="number" value={bid.delivery_days||""} onChange={e=>setBid({...bid,delivery_days:e.target.value})} data-testid="vt-bid-days"/></div>
-              <div><Label className="label-tiny">Catatan Umum</Label><Input value={bid.notes||""} onChange={e=>setBid({...bid,notes:e.target.value})} data-testid="vt-bid-notes"/></div>
+              <div><Label className="label-tiny">Catatan Umum</Label><Input value={bid.notes||""} onChange={e=>setBid({...bid,notes:e.target.value})} data-testid="vt-bid-notes-all"/></div>
             </div>
+            {/* Attachments */}
+            <div className="border border-dashed border-slate-300 rounded p-3 bg-slate-50">
+              <div className="flex items-center justify-between mb-2">
+                <Label className="label-tiny flex items-center gap-1"><Paperclip size={12}/> Lampiran (Spec, Brosur, Proposal)</Label>
+                <label className="cursor-pointer">
+                  <input type="file" className="hidden" data-testid="vt-bid-file-input" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx" onChange={e=>{const f=e.target.files?.[0]; if(f){uploadAttachment(f); e.target.value="";}}} disabled={uploading}/>
+                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${uploading?"bg-slate-200 text-slate-500":"bg-blue-600 text-white hover:bg-blue-700"}`} data-testid="vt-bid-upload-btn">
+                    <Upload size={12}/>{uploading?"Mengunggah...":"Tambah File"}
+                  </span>
+                </label>
+              </div>
+              {(bid.attachments||[]).length === 0 ? (
+                <div className="text-xs text-slate-400 italic">Belum ada lampiran. PDF/JPG/DOCX maks 10MB.</div>
+              ) : (
+                <ul className="space-y-1" data-testid="vt-bid-attach-list">
+                  {(bid.attachments||[]).map((a,i)=>(
+                    <li key={i} className="flex items-center justify-between text-xs bg-white border border-slate-200 rounded px-2 py-1">
+                      <a href={a.url} target="_blank" rel="noreferrer" className="underline text-blue-700 truncate max-w-md">{a.filename}</a>
+                      <button onClick={()=>removeAttachment(i)} className="text-slate-400 hover:text-red-600" data-testid={`vt-bid-attach-rm-${i}`}><X size={14}/></button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            {bidOn?.my_bid?.status === "draft" && (
+              <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2" data-testid="vt-bid-draft-loaded">
+                <Info size={12}/> Memuat draft yang tersimpan — silakan lanjutkan atau submit.
+              </div>
+            )}
           </div>
-          <DialogFooter><Button onClick={submit} data-testid="vt-bid-submit">Submit Bid</Button></DialogFooter>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={saveDraft} disabled={saving} data-testid="vt-bid-save-draft"><Save size={14}/> Simpan Draft</Button>
+            <Button onClick={submit} disabled={saving} data-testid="vt-bid-submit"><Send size={14}/> Submit Bid</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
