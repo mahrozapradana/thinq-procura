@@ -64,7 +64,7 @@ export default function UsersPage() {
           </DialogContent>
         </Dialog>
       </div>
-      <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
           <thead><tr><th>Nama</th><th>Email</th><th>Role</th><th>Department</th><th>Approval Limit</th><th></th></tr></thead>
           <tbody>

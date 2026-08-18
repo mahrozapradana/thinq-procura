@@ -83,7 +83,7 @@ export default function Budgets() {
         </Dialog>
         </div>
       </div>
-      <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
           <thead><tr><th>Department</th><th>Produk</th><th>Periode</th><th>Amount</th><th>Terpakai</th><th>Sisa</th><th>Status</th><th></th></tr></thead>
           <tbody>

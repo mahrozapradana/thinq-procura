@@ -279,7 +279,7 @@ export default function PurchaseRequests() {
         <Button variant="outline" size="sm" disabled={page>=pages} onClick={()=>setPage(p=>p+1)} data-testid="pr-next">›</Button>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
           <thead><tr><th>No PR</th><th>Requester</th><th>Department</th><th>Type</th><th>Bonded</th><th>Total</th><th>Status</th><th>Warehouse</th><th></th></tr></thead>
           <tbody>

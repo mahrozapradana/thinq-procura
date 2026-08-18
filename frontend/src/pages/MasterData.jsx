@@ -66,7 +66,7 @@ function DataSection({ title, endpoint, columns, fields, testid, extra }) {
         </Dialog>
       </div>
       {extra}
-      <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
           <thead><tr>{columns.map(c => <th key={c.key}>{c.label}</th>)}<th></th></tr></thead>
           <tbody>

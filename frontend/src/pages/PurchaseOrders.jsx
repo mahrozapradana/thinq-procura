@@ -121,7 +121,7 @@ export default function PurchaseOrders() {
         <Button variant="outline" size="sm" disabled={page>=pages} onClick={()=>setPage(p=>p+1)} data-testid="po-next">›</Button>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
           <thead><tr><th>No PO</th><th>Type</th><th>Vendor</th><th>Total</th><th>Status</th><th>Shipping</th><th>Invoice</th><th></th></tr></thead>
           <tbody>

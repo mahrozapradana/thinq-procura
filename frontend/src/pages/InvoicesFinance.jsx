@@ -21,7 +21,7 @@ export default function InvoicesFinance() {
         <div className="label-tiny">Finance</div>
         <h1 className="font-heading text-3xl font-bold tracking-tight">Invoice Outstanding</h1>
       </div>
-      <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
           <thead><tr><th>No Invoice</th><th>PO</th><th>Vendor</th><th>Amount</th><th>Bonded</th><th>Due Date</th><th>Status</th><th></th></tr></thead>
           <tbody>

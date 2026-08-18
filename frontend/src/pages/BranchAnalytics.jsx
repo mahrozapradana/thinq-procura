@@ -26,7 +26,7 @@ export default function BranchAnalytics() {
         <KpiCard testid="ba-kpi-branches" icon={GitCompare} label="Divisi Aktif" value={t.branch_count||0} sub={`dari ${t.total_pr||0} PR`}/>
         <KpiCard testid="ba-kpi-conversion" icon={TrendingUp} label="PR→PO Rate" value={t.total_pr ? `${Math.round((t.total_po||0)/t.total_pr*100)}%` : "-"} sub="conversion"/>
       </div>
-      <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <div className="p-3 border-b border-slate-200 label-tiny">Ranking per Divisi (sort: total spend)</div>
         <table className="data-table">
           <thead><tr><th>#</th><th>Divisi</th><th>Budget</th><th>Spend</th><th>Utilisasi</th><th>PR</th><th>PO</th><th>Avg Cycle</th><th>On-Time %</th><th>Savings</th></tr></thead>

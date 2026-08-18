@@ -95,7 +95,7 @@ export default function TaxReports() {
         </div>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <div className="p-3 border-b border-slate-200 label-tiny">Ringkasan per Jenis Pajak</div>
         <table className="data-table">
           <thead><tr><th>Kode</th><th>Nama</th><th>Tipe</th><th>Rate</th><th>Base (DPP)</th><th>Amount</th><th>Jumlah PO</th></tr></thead>

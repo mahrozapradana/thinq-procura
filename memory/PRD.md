@@ -405,3 +405,10 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - P4: Signed URL untuk logo di Supabase bila tenant butuh privasi
 - P5: A/B test dashboard analytics tenant-scoped
 
+
+## Iteration 21 – 2026-02-18 (Horizontal Scroll + Pagination Global)
+### Fixed
+- **Table Horizontal Scroll**: Semua 17 wrapper `rounded-md overflow-hidden` di pages diganti ke `rounded-md overflow-x-auto` via sed. `.data-table` diberi `min-width: 720px` di index.css supaya kolom tidak tergencet di layout sempit — auto scroll horizontal saat viewport kecil.
+- **Pagination Global Component**: Baru `/app/frontend/src/components/Pagination.jsx` — reusable footer dengan prev/next + halaman terpilih + range 5 dan ellipsis. Diintegrasikan ke VendorPOs & VendorRFQs (client-side slice per 10 baris).
+- **Verified**: Screenshot RFQ vendor menampilkan 8 kolom lengkap (No RFQ/PO, Type, Untaxed, Pajak, Grand Total, Status, Balasan, Aksi Eye + Balas Harga) + footer "1 baris" ✓
+

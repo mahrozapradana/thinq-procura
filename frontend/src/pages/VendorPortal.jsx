@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Send, XCircle, Plus, FileUp, Upload, Eye, Clock } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import Pagination from "@/components/Pagination";
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 async function uploadFile(file) {
@@ -142,7 +143,7 @@ export function VendorTenders() {
   return (
     <div className="space-y-4" data-testid="vendor-tenders">
       <h1 className="font-heading text-3xl font-bold tracking-tight">Tender Tersedia</h1>
-      <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
           <thead><tr><th>No</th><th>Judul</th><th>Deadline</th><th>Items</th><th>Status</th><th></th></tr></thead>
           <tbody>
@@ -184,8 +185,13 @@ export function VendorTenders() {
 export function VendorPOs() {
   const [rows, setRows] = useState([]);
   const [detailId, setDetailId] = useState(null);
+  const [page, setPage] = useState(1);
+  const perPage = 10;
   const load = () => api.get("/vendor-portal/pos").then(r=>setRows(r.data));
   useEffect(()=>{ load(); },[]);
+  const total = rows.length;
+  const pages = Math.max(1, Math.ceil(total/perPage));
+  const paged = rows.slice((page-1)*perPage, page*perPage);
   const acknowledge = async (id) => {
     try { await api.post(`/vendor-portal/pos/${id}/acknowledge`); toast.success("PO dikonfirmasi"); load(); }
     catch(e){ toast.error(e.response?.data?.detail || "Gagal"); }
@@ -194,12 +200,12 @@ export function VendorPOs() {
     <div className="space-y-4" data-testid="vendor-pos">
       <h1 className="font-heading text-3xl font-bold tracking-tight">Purchase Orders Saya</h1>
       <p className="text-xs text-slate-500">Hanya PO yang sudah disetujui procurement & ditujukan pada perusahaan Anda. Read-only.</p>
-      <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
           <thead><tr><th>No PO</th><th>Type</th><th>Untaxed</th><th>Pajak</th><th>Grand Total</th><th>Status</th><th>Ack</th><th>Shipping</th><th></th></tr></thead>
           <tbody>
             {rows.length===0 && <tr><td colSpan={9} className="text-center py-6 text-slate-400">Belum ada PO aktif</td></tr>}
-            {rows.map(p=>(
+            {paged.map(p=>(
               <tr key={p.id} data-testid={`vpo-row-${p.id}`}>
                 <td className="font-mono text-xs">{p.po_number}</td>
                 <td><span className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded ${p.po_type==="BONDED"?"bg-blue-100 text-blue-700":"bg-slate-100"}`}>{p.po_type}</span></td>
@@ -219,6 +225,7 @@ export function VendorPOs() {
             ))}
           </tbody>
         </table>
+        <Pagination page={page} pages={pages} total={total} onChange={setPage} perPage={perPage}/>
       </div>
       <PODetailSheet poId={detailId} onClose={()=>setDetailId(null)} />
     </div>
@@ -230,8 +237,13 @@ export function VendorRFQs() {
   const [detailId, setDetailId] = useState(null);
   const [replyFor, setReplyFor] = useState(null);
   const [reply, setReply] = useState({ can_fulfill: true, items: [], delivery_days: "", overall_notes: "" });
+  const [page, setPage] = useState(1);
+  const perPage = 10;
   const load = () => api.get("/vendor-portal/rfqs").then(r=>setRows(r.data));
   useEffect(()=>{ load(); },[]);
+  const total = rows.length;
+  const pages = Math.max(1, Math.ceil(total/perPage));
+  const paged = rows.slice((page-1)*perPage, page*perPage);
 
   const openReply = async (po) => {
     // fetch fresh detail so we can iterate items
@@ -274,12 +286,12 @@ export function VendorRFQs() {
         <h1 className="font-heading text-3xl font-bold tracking-tight">RFQ / PO Menunggu Persetujuan</h1>
         <p className="text-sm text-slate-600 mt-1">PO yang belum final — Anda dapat mengirim konfirmasi / counter harga sebelum buyer men-approve internal.</p>
       </div>
-      <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
           <thead><tr><th>No RFQ / PO</th><th>Type</th><th>Untaxed</th><th>Pajak</th><th>Grand Total</th><th>Status</th><th>Balasan</th><th></th></tr></thead>
           <tbody>
             {rows.length===0 && <tr><td colSpan={8} className="text-center py-6 text-slate-400">Tidak ada RFQ / PO menunggu</td></tr>}
-            {rows.map(p=>(
+            {paged.map(p=>(
               <tr key={p.id} data-testid={`vrfq-row-${p.id}`}>
                 <td className="font-mono text-xs">{p.po_number}</td>
                 <td><span className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded ${p.po_type==="BONDED"?"bg-blue-100 text-blue-700":"bg-slate-100"}`}>{p.po_type}</span></td>
@@ -296,6 +308,7 @@ export function VendorRFQs() {
             ))}
           </tbody>
         </table>
+        <Pagination page={page} pages={pages} total={total} onChange={setPage} perPage={perPage}/>
       </div>
       <PODetailSheet poId={detailId} onClose={()=>setDetailId(null)} />
 
@@ -353,7 +366,7 @@ export function VendorShipments() {
   return (
     <div className="space-y-4" data-testid="vendor-shipments">
       <h1 className="font-heading text-3xl font-bold tracking-tight">Pengiriman Belum Selesai</h1>
-      <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
           <thead><tr><th>No PO</th><th>Type</th><th>Delivery Date</th><th>Shipping</th></tr></thead>
           <tbody>
@@ -422,7 +435,7 @@ export function VendorInvoices() {
           </DialogContent>
         </Dialog>
       </div>
-      <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
           <thead><tr><th>No Invoice</th><th>PO</th><th>Amount</th><th>Due</th><th>Bonded</th><th>Status</th></tr></thead>
           <tbody>
@@ -516,7 +529,7 @@ export function VendorLS() {
           </DialogContent>
         </Dialog>
       </div>
-      <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
           <thead><tr><th>Jenis</th><th>Ref No</th><th>PO</th><th>HS Codes</th><th>Status</th><th>Tanggal</th></tr></thead>
           <tbody>

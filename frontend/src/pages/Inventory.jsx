@@ -150,7 +150,7 @@ export default function Inventory() {
               </DialogContent>
             </Dialog>
           </div>
-          <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+          <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
             <table className="data-table">
               <thead><tr><th>No GR</th><th>PO</th><th>Received By</th><th>Items</th><th>Tanggal</th><th></th></tr></thead>
               <tbody>
@@ -206,7 +206,7 @@ export default function Inventory() {
               </DialogContent>
             </Dialog>
           </div>
-          <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+          <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
             <table className="data-table">
               <thead><tr><th>No Retur</th><th>Receipt</th><th>Alasan</th><th>Items</th><th>Tanggal</th></tr></thead>
               <tbody>
