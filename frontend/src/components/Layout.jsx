@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Toaster } from "sonner";
+import NotificationsBell from "@/components/NotificationsBell";
 import {
   LayoutDashboard, Package, Building2, Tag, Users, FileText,
   ClipboardList, Gavel, Warehouse, Wallet, Settings, LogOut,
@@ -138,7 +139,10 @@ export default function Layout({ children }) {
             <span className="label-tiny mr-2">Company</span>
             <span className="font-heading font-semibold text-slate-900">Kawasan Berikat Aktif</span>
           </div>
-          <div className="text-xs text-slate-500 font-mono">{new Date().toLocaleString("id-ID")}</div>
+          <div className="flex items-center gap-4">
+            <NotificationsBell/>
+            <div className="text-xs text-slate-500 font-mono">{new Date().toLocaleString("id-ID")}</div>
+          </div>
         </header>
         <div className="p-6 flex-1 min-w-0 fade-up">{children}</div>
       </main>

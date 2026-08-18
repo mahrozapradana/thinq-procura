@@ -66,6 +66,25 @@ export default function SettingsPage() {
               <div><Label className="label-tiny">Email</Label><Input value={c.email||""} onChange={e=>setC({...c,email:e.target.value})} data-testid="cs-email"/></div>
               <div><Label className="label-tiny">Currency</Label><Input value={c.currency||"IDR"} onChange={e=>setC({...c,currency:e.target.value})} data-testid="cs-currency"/></div>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="label-tiny">Threshold Re-Approval Harga Vendor (%)</Label>
+                <Input type="number" step="0.5" value={c.reapproval_threshold_pct ?? 5} onChange={e=>setC({...c, reapproval_threshold_pct: parseFloat(e.target.value||0)})} data-testid="cs-threshold"/>
+                <div className="text-[10px] text-slate-500 mt-1">Bila vendor ubah harga di RFQ Reply &gt; nilai ini, approval otomatis diulang.</div>
+              </div>
+              <div>
+                <Label className="label-tiny">Kurs ke IDR (multi-currency PO)</Label>
+                <div className="grid grid-cols-3 gap-1">
+                  {["USD","SGD","JPY"].map(cur=>(
+                    <div key={cur} className="flex items-center gap-1">
+                      <span className="text-xs font-mono w-8">{cur}</span>
+                      <Input type="number" value={c.exchange_rates?.[cur]||""} onChange={e=>setC({...c, exchange_rates:{...(c.exchange_rates||{}), [cur]: parseFloat(e.target.value||0)}})} data-testid={`cs-rate-${cur}`} className="h-8 text-xs"/>
+                    </div>
+                  ))}
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">Contoh: USD = 15800. Digunakan untuk PO Bonded USD.</div>
+              </div>
+            </div>
             <div><Label className="label-tiny">Alamat</Label><Textarea value={c.address||""} onChange={e=>setC({...c,address:e.target.value})} data-testid="cs-address"/></div>
             <div className="grid grid-cols-2 gap-3">
               <div>

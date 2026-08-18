@@ -398,6 +398,8 @@ class POCreateIn(BaseModel):
     dpp_nilai_lain: float = 0.0
     assigned_pic_id: Optional[str] = None
     tax_ids: List[str] = Field(default_factory=list)  # many2many taxes
+    currency: str = "IDR"
+    exchange_rate: float = 1.0  # rate to IDR at PO creation
 
 
 @router.get("/pos")
@@ -521,7 +523,11 @@ async def create_po(payload: POCreateIn, user=Depends(get_current_active_user)):
         "taxes_snapshot": taxes_snapshot,
         "dpp_nilai_lain": float(payload.dpp_nilai_lain or 0),
         "amount_total": amount_total,
-        "currency": "IDR",
+        "currency": payload.currency,
+        "exchange_rate": float(payload.exchange_rate or 1.0),
+        "amount_total_idr": amount_total * float(payload.exchange_rate or 1.0),
+        "untaxed_amount_idr": total * float(payload.exchange_rate or 1.0),
+        "amount_tax_idr": amount_tax * float(payload.exchange_rate or 1.0),
         "status": "pending_approval" if steps else "approved",
         "approvals": steps,
         "current_level": 1 if steps else 0,
@@ -573,6 +579,11 @@ async def send_po(pid: str, user=Depends(get_current_active_user)):
 REAPPROVAL_DELTA_PCT = 5.0
 
 
+async def _get_reapproval_threshold(db) -> float:
+    cfg = await db.company_settings.find_one({"id": "singleton-company"}, {"reapproval_threshold_pct": 1}) or {}
+    return float(cfg.get("reapproval_threshold_pct") or REAPPROVAL_DELTA_PCT)
+
+
 @router.post("/pos/{pid}/accept-vendor-reply")
 async def accept_vendor_reply(pid: str, user=Depends(get_current_active_user)):
     """Buyer accepts vendor's counter prices; recalculate totals + tax; re-trigger approval if delta > threshold."""
@@ -588,6 +599,7 @@ async def accept_vendor_reply(pid: str, user=Depends(get_current_active_user)):
     if not reply.get("can_fulfill", True):
         raise HTTPException(400, "Vendor menolak — gunakan tombol Tolak dan pilih vendor lain")
 
+    threshold = await _get_reapproval_threshold(db)
     # Apply counter prices per item
     items = list(po.get("items") or [])
     max_delta_pct = 0.0
@@ -634,13 +646,13 @@ async def accept_vendor_reply(pid: str, user=Depends(get_current_active_user)):
     }
 
     reapproved = False
-    if max_delta_pct > REAPPROVAL_DELTA_PCT:
+    if max_delta_pct > threshold:
         wf = await _pick_workflow(db, "PO", None)
         new_steps = _levels_for_amount(wf, new_untaxed)
         update["approvals"] = new_steps
         update["current_level"] = 1 if new_steps else 0
         update["status"] = "pending_approval" if new_steps else "approved"
-        update["reapproval_reason"] = f"Perubahan harga vendor {max_delta_pct:.1f}% > {REAPPROVAL_DELTA_PCT}%"
+        update["reapproval_reason"] = f"Perubahan harga vendor {max_delta_pct:.1f}% > threshold {threshold:.1f}%"
         reapproved = True
 
     await db.pos.update_one({"id": pid}, {"$set": update})
@@ -650,7 +662,7 @@ async def accept_vendor_reply(pid: str, user=Depends(get_current_active_user)):
             await notify_pending_approval("Purchase Order", fresh)
         except Exception:
             pass
-    return {"ok": True, "reapproved": reapproved, "delta_pct": max_delta_pct, "new_total": amount_total}
+    return {"ok": True, "reapproved": reapproved, "delta_pct": max_delta_pct, "threshold": threshold, "new_total": amount_total}
 
 
 @router.post("/pos/{pid}/reject-vendor-reply")

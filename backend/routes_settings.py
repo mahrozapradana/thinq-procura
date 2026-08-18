@@ -24,6 +24,8 @@ class CompanySettingsIn(BaseModel):
     address: Optional[str] = None
     npwp: Optional[str] = None
     email: Optional[str] = None
+    reapproval_threshold_pct: float = 5.0  # % delta harga vendor yang memicu approval ulang
+    exchange_rates: Optional[dict] = None  # {"USD": 15800, "SGD": 11700, "JPY": 105}
 
 
 @router.get("/settings/company")

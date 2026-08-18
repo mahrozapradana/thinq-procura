@@ -193,3 +193,43 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - P2: Real-time WebSocket notification untuk vendor reply
 - P3: Multi-currency support di PO (USD Bonded)
 
+
+## Iteration 14 – 2026-02-18 (Threshold config + Bell notif + Multi-currency + Vendor suggest)
+### Added
+- **Threshold Re-Approval di Settings**: `reapproval_threshold_pct` (default 5.0) di `CompanySettingsIn`. Backend `accept-vendor-reply` sekarang membaca dari `db.company_settings` singleton. UI: field baru di Settings > Company. Verified: set 15% → change of 20% still triggers re-approval (as 20 > 15).
+- **Bell Notifications (In-App)**:
+  - Collection `notifications` `{id,user_id,type,title,message,link,meta,is_read,created_at}`.
+  - Endpoints: `GET /api/notifications?unread_only=&limit=`, `POST /api/notifications/{id}/read`, `POST /api/notifications/read-all`.
+  - Helpers: `create_notification(user_id,...)`, `notify_role(role,...)`.
+  - Hook di `vendor-portal/rfqs/{id}/reply` — insert notif ke PO creator + broadcast ke role `procurement`.
+  - Frontend: `NotificationsBell.jsx` component di topbar Layout, polls every 20s, badge merah dengan unread count, dropdown panel with "Buka" link + "Tandai terbaca" per-item + "Tandai semua terbaca".
+  - Verified: RFQ reply → notif "Vendor membalas RFQ PO-XXX" muncul dengan unread=1 ✓
+- **Multi-Currency PO**:
+  - `POCreateIn.currency` (IDR/USD/SGD/JPY) + `exchange_rate` (auto-filled dari `company_settings.exchange_rates`).
+  - Storage: PO doc menyimpan `currency`, `exchange_rate`, plus `amount_total_idr`, `untaxed_amount_idr`, `amount_tax_idr` (auto-converted) → laporan pajak selalu dalam IDR.
+  - UI: dropdown Currency + input Kurs di PO Merge Dialog (auto-fill dari company rates).
+  - Settings: input Kurs USD/SGD/JPY di Company tab (persisted di `exchange_rates` dict).
+- **Auto-Suggest Vendor**:
+  - `GET /api/vendor-suggestions?product_ids=&top=` — ranking berdasarkan:
+    - 40% rating_score (avg_rating/5)
+    - 30% ontime_score (on-time deliveries / completed)
+    - 30% leadtime_score (1 - avg_lead_days/60, capped)
+    - +10% bonus jika vendor pernah supply produk yang sama
+  - Response: `[{vendor_id, company_name, avg_rating, po_count, on_time_pct, avg_lead_days, product_match, score, reasons[]}]`
+  - UI: Di PO Merge Dialog, saat PR dipilih → card rekomendasi vendor muncul dengan skor + alasan. Tombol pilih vendor rekomendasi teratas dengan badge "TOP" hijau.
+  - Verified: endpoint returns 2 vendors ranked ✓
+- **Route Fix**: `/vendors/suggest` collision dengan `/vendors/{vid}` diperbaiki dengan rename ke `/vendor-suggestions`.
+
+### Verified
+- Threshold saved di company_settings: `reapproval_threshold_pct=15.0`, `exchange_rates={"USD":15800,"SGD":11700,"JPY":105}` ✓
+- Notifications: bell topbar muncul dengan badge merah "1", panel dropdown menampilkan "Vendor membalas RFQ PO-20260818-3747E" ✓
+- Settings UI: field Threshold + Kurs USD/SGD/JPY tampil di tab Company ✓
+- PO Merge Dialog: dropdown Currency (IDR/USD/SGD/JPY) muncul ✓
+- Vendor Suggestions endpoint: `/api/vendor-suggestions?top=3` returns ranked JSON ✓
+
+### Backlog / Next
+- P2: Auto-fetch exchange rate harian dari Bank Indonesia API (JISDOR)
+- P2: WebSocket real push (SSE atau socket.io) menggantikan polling 20s
+- P2: Vendor suggestion untuk PR (bukan hanya PO) supaya requester bisa pilih vendor dari awal
+- P3: Notification preferences per user (email vs bell vs both)
+

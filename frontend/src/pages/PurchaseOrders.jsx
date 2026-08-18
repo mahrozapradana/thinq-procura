@@ -40,8 +40,10 @@ export default function PurchaseOrders() {
   const [detail, setDetail] = useState(null);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [selected, setSelected] = useState({});
-  const [form, setForm] = useState({ po_type: "LOCAL", tax_percent: 11, projects: [], tax_ids: [] });
+  const [form, setForm] = useState({ po_type: "LOCAL", tax_percent: 11, projects: [], tax_ids: [], currency: "IDR", exchange_rate: 1 });
   const [taxes, setTaxes] = useState([]);
+  const [suggestions, setSuggestions] = useState([]);
+  const [companyRates, setCompanyRates] = useState({});
   const [rating, setRating] = useState(0);
   const [ratingNote, setRatingNote] = useState("");
 
@@ -50,15 +52,23 @@ export default function PurchaseOrders() {
     api.get("/prs?page_size=100&status=approved").then(r=>setPrs(r.data.items || []));
     api.get("/vendors?status=approved&exclude_blacklisted=true").then(r=>setVendors(r.data));
     api.get("/taxes?active_only=true").then(r=>setTaxes(r.data)).catch(()=>{});
+    api.get("/settings/company").then(r=>setCompanyRates(r.data.exchange_rates || {})).catch(()=>{});
   };
   useEffect(() => { load(); }, [page, q]);
 
   const selectedIds = Object.keys(selected).filter(k=>selected[k]);
 
+  useEffect(() => {
+    if (selectedIds.length === 0) { setSuggestions([]); return; }
+    const productIds = [...new Set(selectedIds.flatMap(id => (prs.find(p=>p.id===id)?.items||[]).map(i=>i.product_id)))].join(",");
+    api.get(`/vendor-suggestions?product_ids=${productIds}&top=3`).then(r=>setSuggestions(r.data.suggestions || [])).catch(()=>setSuggestions([]));
+  }, [selectedIds.join(","), prs.length]);
+
   const createPO = async () => {
     try {
-      await api.post("/pos", { ...form, pr_ids: selectedIds });
-      toast.success("PO dibuat"); setMergeOpen(false); setSelected({}); setForm({po_type:"LOCAL", tax_ids:[]}); load();
+      const rate = form.currency === "IDR" ? 1 : (companyRates[form.currency] || form.exchange_rate || 1);
+      await api.post("/pos", { ...form, exchange_rate: rate, pr_ids: selectedIds });
+      toast.success("PO dibuat"); setMergeOpen(false); setSelected({}); setForm({po_type:"LOCAL", tax_ids:[], currency:"IDR", exchange_rate:1}); load();
     } catch(e){ toast.error(e.response?.data?.detail); }
   };
   const approve = async (id) => { await api.post(`/pos/${id}/approve`); toast.success("Approved"); load(); };
@@ -162,6 +172,44 @@ export default function PurchaseOrders() {
               </div>
               <div><Label className="label-tiny">Delivery Date</Label><Input type="date" value={form.delivery_date||""} onChange={e=>setForm({...form,delivery_date:e.target.value})} data-testid="po-delivery"/></div>
             </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label className="label-tiny">Currency</Label>
+                <Select value={form.currency||"IDR"} onValueChange={v=>setForm({...form, currency: v, exchange_rate: v==="IDR"?1:(companyRates[v]||1)})}>
+                  <SelectTrigger data-testid="po-currency"><SelectValue/></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="IDR">IDR (Rupiah)</SelectItem>
+                    <SelectItem value="USD">USD (Bonded)</SelectItem>
+                    <SelectItem value="SGD">SGD</SelectItem>
+                    <SelectItem value="JPY">JPY</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {form.currency && form.currency !== "IDR" && (
+                <div className="col-span-2">
+                  <Label className="label-tiny">Kurs → IDR</Label>
+                  <Input type="number" value={form.exchange_rate||companyRates[form.currency]||""} onChange={e=>setForm({...form, exchange_rate: parseFloat(e.target.value||0)})} data-testid="po-exchange-rate"/>
+                  <div className="text-[10px] text-slate-500 mt-1">Default dari Settings → Company → Kurs. Total IDR akan otomatis disimpan untuk pelaporan pajak.</div>
+                </div>
+              )}
+            </div>
+            {suggestions.length > 0 && (
+              <div className="bg-slate-50 border border-slate-200 rounded p-3" data-testid="po-suggest">
+                <div className="label-tiny mb-2">💡 Rekomendasi Vendor (skor tertinggi)</div>
+                <div className="space-y-1">
+                  {suggestions.map((s,i)=>(
+                    <button key={s.vendor_id} onClick={()=>setForm({...form, vendor_id: s.vendor_id})} className={`w-full text-left flex items-center gap-3 p-2 rounded border ${form.vendor_id===s.vendor_id?"border-slate-900 bg-white":"border-slate-200 bg-white hover:border-slate-400"}`} data-testid={`po-suggest-${i}`}>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${i===0?"bg-emerald-500 text-white":"bg-slate-200 text-slate-700"}`}>{s.score}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold truncate">{s.company_name}</div>
+                        <div className="text-[10px] text-slate-500">{s.reasons.join(" · ")}</div>
+                      </div>
+                      {i===0 && <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">Top</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div>
               <Label className="label-tiny">Pajak (bisa lebih dari satu — sales menambah, withholding mengurangi)</Label>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-1 max-h-32 overflow-y-auto border border-slate-200 rounded p-2 text-xs mt-1" data-testid="po-tax-list">

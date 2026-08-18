@@ -175,6 +175,27 @@ async def vendor_rfq_reply(pid: str, payload: RFQReplyIn, user=Depends(get_curre
         "submitted_at": now_iso(),
     }
     await db.pos.update_one({"id": pid}, {"$set": {"vendor_reply": reply_doc}})
+    # Notify buyer via bell notification
+    try:
+        from routes_notifications import create_notification, notify_role
+        if po.get("created_by"):
+            await create_notification(
+                po["created_by"],
+                "rfq_reply",
+                f"Vendor membalas RFQ {po.get('po_number')}",
+                f"{user.get('name')} kirim {'penawaran counter' if payload.can_fulfill else 'penolakan'} — cek detail sekarang.",
+                f"/po?open={pid}",
+                {"po_id": pid, "po_number": po.get("po_number")},
+            )
+        # Also notify all procurement users
+        await notify_role(
+            "procurement", "rfq_reply",
+            f"Vendor membalas RFQ {po.get('po_number')}",
+            f"{user.get('name')} kirim balasan — perlu ditinjau",
+            f"/po?open={pid}",
+        )
+    except Exception:
+        pass
     return {"ok": True, "reply": reply_doc}
 
 
