@@ -17,6 +17,8 @@ export default function Inventory() {
   const [warehouses, setWarehouses] = useState([]);
   const [locations, setLocations] = useState([]);
   const [customs, setCustoms] = useState([]);
+  const [rPage, setRPage] = useState(1);
+  const [retPage, setRetPage] = useState(1);
   const [receiptOpen, setReceiptOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
   const [receiptForm, setReceiptForm] = useState({ items:[] });
@@ -150,19 +152,25 @@ export default function Inventory() {
               </DialogContent>
             </Dialog>
           </div>
+          <div className="flex justify-end mb-2">
+            <ExportCsvButton rows={receipts} filename="goods-receipts" columns={[
+              {key:"receipt_number",label:"No GR"},{key:"po_number",label:"PO"},{key:"received_by_name",label:"Received By"},
+              {label:"Items",get:r=>r.items?.length||0},{key:"created_at",label:"Tanggal"},
+            ]}/>
+          </div>
           <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
             <table className="data-table">
               <thead><tr><th>No GR</th><th>PO</th><th>Received By</th><th>Items</th><th>Tanggal</th><th></th></tr></thead>
               <tbody>
-                {receipts.length===0 && <tr><td colSpan={5} className="text-center py-6 text-slate-400">Belum ada penerimaan</td></tr>}
-                {receipts.map(r=>(
+                {receipts.length===0 && <tr><td colSpan={6} className="text-center py-6 text-slate-400">Belum ada penerimaan</td></tr>}
+                {receipts.slice((rPage-1)*10, rPage*10).map(r=>(
                   <tr key={r.id} data-testid={`receipt-row-${r.id}`}>
-                    <td className="font-mono text-xs">{r.receipt_number}</td>
-                    <td className="font-mono text-xs">{r.po_number}</td>
-                    <td>{r.received_by_name}</td>
-                    <td>{r.items?.length || 0} item</td>
-                    <td className="text-xs">{new Date(r.created_at).toLocaleString("id-ID")}</td>
-                    <td className="text-right">
+                    <td className="font-mono text-xs" data-label="No GR">{r.receipt_number}</td>
+                    <td className="font-mono text-xs" data-label="PO">{r.po_number}</td>
+                    <td data-label="Received By">{r.received_by_name}</td>
+                    <td data-label="Items">{r.items?.length || 0} item</td>
+                    <td className="text-xs" data-label="Tanggal">{new Date(r.created_at).toLocaleString("id-ID")}</td>
+                    <td className="text-right" data-label="Aksi">
                       <button onClick={async ()=>{
                         const t = localStorage.getItem("access_token");
                         const res = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/goods-receipts/${r.id}/labels.pdf`, { credentials:"include", headers: t?{Authorization:`Bearer ${t}`}:{}});
@@ -173,6 +181,7 @@ export default function Inventory() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={rPage} pages={Math.max(1,Math.ceil(receipts.length/10))} total={receipts.length} onChange={setRPage} perPage={10}/>
           </div>
         </TabsContent>
         <TabsContent value="returns" className="mt-4 space-y-3">
@@ -211,17 +220,18 @@ export default function Inventory() {
               <thead><tr><th>No Retur</th><th>Receipt</th><th>Alasan</th><th>Items</th><th>Tanggal</th></tr></thead>
               <tbody>
                 {returns.length===0 && <tr><td colSpan={5} className="text-center py-6 text-slate-400">Belum ada retur</td></tr>}
-                {returns.map(r=>(
+                {returns.slice((retPage-1)*10, retPage*10).map(r=>(
                   <tr key={r.id} data-testid={`return-row-${r.id}`}>
-                    <td className="font-mono text-xs">{r.return_number}</td>
-                    <td className="font-mono text-xs">{r.receipt_number}</td>
-                    <td>{r.reason}</td>
-                    <td>{r.items?.length||0}</td>
-                    <td className="text-xs">{new Date(r.created_at).toLocaleString("id-ID")}</td>
+                    <td className="font-mono text-xs" data-label="No Retur">{r.return_number}</td>
+                    <td className="font-mono text-xs" data-label="Receipt">{r.receipt_number}</td>
+                    <td data-label="Alasan">{r.reason}</td>
+                    <td data-label="Items">{r.items?.length||0}</td>
+                    <td className="text-xs" data-label="Tanggal">{new Date(r.created_at).toLocaleString("id-ID")}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            <Pagination page={retPage} pages={Math.max(1,Math.ceil(returns.length/10))} total={returns.length} onChange={setRetPage} perPage={10}/>
           </div>
         </TabsContent>
       </Tabs>

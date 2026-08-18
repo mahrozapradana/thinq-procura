@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { Send, XCircle, Plus, FileUp, Upload, Eye, Clock } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import Pagination from "@/components/Pagination";
+import ExportCsvButton from "@/components/ExportCsvButton";
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 async function uploadFile(file) {
@@ -198,7 +199,13 @@ export function VendorPOs() {
   };
   return (
     <div className="space-y-4" data-testid="vendor-pos">
-      <h1 className="font-heading text-3xl font-bold tracking-tight">Purchase Orders Saya</h1>
+      <div className="flex justify-between items-end">
+        <h1 className="font-heading text-3xl font-bold tracking-tight">Purchase Orders Saya</h1>
+        <ExportCsvButton rows={rows} filename="vendor-pos" columns={[
+          {key:"po_number",label:"No PO"},{key:"po_type",label:"Type"},{key:"amount_total",label:"Grand Total"},
+          {key:"status",label:"Status"},{key:"shipping_status",label:"Shipping"},{key:"vendor_acknowledged",label:"Diakui"},
+        ]}/>
+      </div>
       <p className="text-xs text-slate-500">Hanya PO yang sudah disetujui procurement & ditujukan pada perusahaan Anda. Read-only.</p>
       <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
@@ -285,6 +292,12 @@ export function VendorRFQs() {
         <div className="label-tiny">Vendor Portal</div>
         <h1 className="font-heading text-3xl font-bold tracking-tight">RFQ / PO Menunggu Persetujuan</h1>
         <p className="text-sm text-slate-600 mt-1">PO yang belum final — Anda dapat mengirim konfirmasi / counter harga sebelum buyer men-approve internal.</p>
+      </div>
+      <div className="flex justify-end">
+        <ExportCsvButton rows={rows} filename="vendor-rfqs" columns={[
+          {key:"po_number",label:"No RFQ/PO"},{key:"po_type",label:"Type"},{key:"amount_total",label:"Grand Total"},
+          {key:"status",label:"Status"},{label:"Balasan",get:p=>p.vendor_reply?"Dibalas":"Belum"},
+        ]}/>
       </div>
       <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">

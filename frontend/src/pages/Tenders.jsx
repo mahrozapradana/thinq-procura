@@ -9,6 +9,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Plus, Trash2, Eye, PlayCircle, Award, StopCircle } from "lucide-react";
+import Pagination from "@/components/Pagination";
+import ExportCsvButton from "@/components/ExportCsvButton";
 
 const STATUS_STYLE = {
   open:"bg-emerald-100 text-emerald-700",
@@ -24,6 +26,11 @@ export default function Tenders() {
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState(null);
   const [form, setForm] = useState({ items:[], invited_vendor_ids:[], is_bonded:false });
+  const [page, setPage] = useState(1);
+  const perPage = 10;
+  const total = rows.length;
+  const pages = Math.max(1, Math.ceil(total/perPage));
+  const paged = rows.slice((page-1)*perPage, page*perPage);
 
   const load = () => api.get("/tenders").then(r=>setRows(r.data));
   useEffect(()=>{ load(); api.get("/products").then(r=>setProducts(r.data)); api.get("/vendors?status=approved&exclude_blacklisted=true").then(r=>setVendors(r.data));},[]);
@@ -97,20 +104,26 @@ export default function Tenders() {
         </Dialog>
       </div>
 
+      <div className="flex justify-end">
+        <ExportCsvButton rows={rows} filename="tenders" columns={[
+          {key:"tender_number",label:"No Tender"},{key:"title",label:"Judul"},{key:"deadline",label:"Deadline"},{key:"status",label:"Status"},
+          {label:"Bids",get:t=>t.bids?.filter(b=>b.status==="submitted").length||0},
+        ]}/>
+      </div>
       <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
           <thead><tr><th>No Tender</th><th>Judul</th><th>Deadline</th><th>Undangan</th><th>Bids</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {rows.length===0 && <tr><td colSpan={7} className="text-center py-6 text-slate-400">Belum ada tender</td></tr>}
-            {rows.map(t => (
+            {paged.map(t => (
               <tr key={t.id} data-testid={`tender-row-${t.id}`}>
-                <td className="font-mono text-xs">{t.tender_number}</td>
-                <td>{t.title}</td>
-                <td className="text-xs">{t.deadline}</td>
-                <td className="text-xs">{t.invited_vendor_ids?.length ? `${t.invited_vendor_ids.length} vendor` : "OPEN"}</td>
-                <td>{t.bids?.filter(b=>b.status==="submitted").length || 0}</td>
-                <td><span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS_STYLE[t.status]||"bg-slate-100"}`}>{t.status}</span></td>
-                <td className="text-right whitespace-nowrap">
+                <td className="font-mono text-xs" data-label="No Tender">{t.tender_number}</td>
+                <td data-label="Judul">{t.title}</td>
+                <td className="text-xs" data-label="Deadline">{t.deadline}</td>
+                <td className="text-xs" data-label="Undangan">{t.invited_vendor_ids?.length ? `${t.invited_vendor_ids.length} vendor` : "OPEN"}</td>
+                <td data-label="Bids">{t.bids?.filter(b=>b.status==="submitted").length || 0}</td>
+                <td data-label="Status"><span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS_STYLE[t.status]||"bg-slate-100"}`}>{t.status}</span></td>
+                <td className="text-right whitespace-nowrap" data-label="Aksi">
                   <button onClick={()=>setDetail(t)} className="p-1 hover:bg-slate-100 rounded" data-testid={`tender-view-${t.id}`}><Eye size={14}/></button>
                   {t.status==="draft" && <button onClick={()=>openT(t.id)} className="p-1" data-testid={`tender-open-${t.id}`}><PlayCircle size={14} className="text-emerald-600"/></button>}
                   {t.status==="open" && <button onClick={()=>closeT(t.id)} className="p-1" data-testid={`tender-close-${t.id}`}><StopCircle size={14} className="text-amber-600"/></button>}
@@ -119,6 +132,7 @@ export default function Tenders() {
             ))}
           </tbody>
         </table>
+        <Pagination page={page} pages={pages} total={total} onChange={setPage} perPage={perPage}/>
       </div>
 
       <Sheet open={!!detail} onOpenChange={(v)=>!v && setDetail(null)}>
