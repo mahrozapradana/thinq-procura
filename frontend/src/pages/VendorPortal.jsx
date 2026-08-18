@@ -184,14 +184,19 @@ export function VendorTenders() {
 export function VendorPOs() {
   const [rows, setRows] = useState([]);
   const [detailId, setDetailId] = useState(null);
-  useEffect(()=>{ api.get("/vendor-portal/pos").then(r=>setRows(r.data)); },[]);
+  const load = () => api.get("/vendor-portal/pos").then(r=>setRows(r.data));
+  useEffect(()=>{ load(); },[]);
+  const acknowledge = async (id) => {
+    try { await api.post(`/vendor-portal/pos/${id}/acknowledge`); toast.success("PO dikonfirmasi"); load(); }
+    catch(e){ toast.error(e.response?.data?.detail || "Gagal"); }
+  };
   return (
     <div className="space-y-4" data-testid="vendor-pos">
       <h1 className="font-heading text-3xl font-bold tracking-tight">Purchase Orders Saya</h1>
       <p className="text-xs text-slate-500">Hanya PO yang sudah disetujui procurement & ditujukan pada perusahaan Anda. Read-only.</p>
       <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
         <table className="data-table">
-          <thead><tr><th>No PO</th><th>Type</th><th>Untaxed</th><th>Pajak</th><th>Grand Total</th><th>Status</th><th>Shipping</th><th>Invoice</th><th></th></tr></thead>
+          <thead><tr><th>No PO</th><th>Type</th><th>Untaxed</th><th>Pajak</th><th>Grand Total</th><th>Status</th><th>Ack</th><th>Shipping</th><th></th></tr></thead>
           <tbody>
             {rows.length===0 && <tr><td colSpan={9} className="text-center py-6 text-slate-400">Belum ada PO aktif</td></tr>}
             {rows.map(p=>(
@@ -202,9 +207,14 @@ export function VendorPOs() {
                 <td className="text-xs">{(p.taxes_snapshot||[]).map(t=>t.code).join(", ") || (p.tax_percent?`PPN ${p.tax_percent}%`:"-")}</td>
                 <td className="font-mono font-semibold">{fmtIDR(p.amount_total || p.total)}</td>
                 <td><span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS[p.status]||"bg-slate-100"}`}>{p.status}</span></td>
+                <td className="text-xs">{p.vendor_acknowledged ? <span className="text-emerald-700 font-semibold">✓ Diakui</span> : <span className="text-slate-400">Belum</span>}</td>
                 <td className="text-xs">{p.shipping_status}</td>
-                <td className="text-xs">{p.invoice_status}</td>
-                <td className="text-right"><button onClick={()=>setDetailId(p.id)} className="p-1 hover:bg-slate-100 rounded" data-testid={`vpo-view-${p.id}`}><Eye size={14}/></button></td>
+                <td className="text-right whitespace-nowrap">
+                  <button onClick={()=>setDetailId(p.id)} className="p-1 hover:bg-slate-100 rounded" data-testid={`vpo-view-${p.id}`}><Eye size={14}/></button>
+                  {(p.status==="approved" || p.status==="sent") && !p.vendor_acknowledged && (
+                    <button onClick={()=>acknowledge(p.id)} className="ml-1 text-[10px] px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-semibold" data-testid={`vpo-ack-${p.id}`}>Konfirmasi Terima</button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -218,17 +228,55 @@ export function VendorPOs() {
 export function VendorRFQs() {
   const [rows, setRows] = useState([]);
   const [detailId, setDetailId] = useState(null);
-  useEffect(()=>{ api.get("/vendor-portal/rfqs").then(r=>setRows(r.data)); },[]);
+  const [replyFor, setReplyFor] = useState(null);
+  const [reply, setReply] = useState({ can_fulfill: true, items: [], delivery_days: "", overall_notes: "" });
+  const load = () => api.get("/vendor-portal/rfqs").then(r=>setRows(r.data));
+  useEffect(()=>{ load(); },[]);
+
+  const openReply = async (po) => {
+    // fetch fresh detail so we can iterate items
+    const r = await api.get(`/vendor-portal/pos/${po.id}`);
+    const full = r.data;
+    setReplyFor(full);
+    setReply({
+      can_fulfill: true,
+      delivery_days: "",
+      overall_notes: full.vendor_reply?.overall_notes || "",
+      items: (full.items||[]).map((it, i) => ({
+        item_index: i,
+        original_price: it.price,
+        product_name: it.product_name,
+        qty: it.qty,
+        price: full.vendor_reply?.items?.[i]?.price ?? it.price,
+        notes: full.vendor_reply?.items?.[i]?.notes || "",
+      })),
+    });
+  };
+
+  const submitReply = async () => {
+    try {
+      await api.post(`/vendor-portal/rfqs/${replyFor.id}/reply`, {
+        can_fulfill: reply.can_fulfill,
+        delivery_days: reply.delivery_days ? parseInt(reply.delivery_days) : null,
+        overall_notes: reply.overall_notes,
+        items: reply.items.map(i => ({ item_index: i.item_index, price: parseFloat(i.price||0), notes: i.notes })),
+      });
+      toast.success("Balasan harga terkirim ke buyer");
+      setReplyFor(null);
+      load();
+    } catch(e) { toast.error(e.response?.data?.detail || "Gagal"); }
+  };
+
   return (
     <div className="space-y-4" data-testid="vendor-rfqs">
       <div>
         <div className="label-tiny">Vendor Portal</div>
         <h1 className="font-heading text-3xl font-bold tracking-tight">RFQ / PO Menunggu Persetujuan</h1>
-        <p className="text-sm text-slate-600 mt-1">Daftar PO yang belum final — masih dalam proses approval internal buyer. Anda hanya dapat melihat, belum bisa diproses lebih lanjut.</p>
+        <p className="text-sm text-slate-600 mt-1">PO yang belum final — Anda dapat mengirim konfirmasi / counter harga sebelum buyer men-approve internal.</p>
       </div>
       <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
         <table className="data-table">
-          <thead><tr><th>No RFQ / PO</th><th>Type</th><th>Untaxed</th><th>Pajak</th><th>Grand Total</th><th>Status</th><th>Order Date</th><th></th></tr></thead>
+          <thead><tr><th>No RFQ / PO</th><th>Type</th><th>Untaxed</th><th>Pajak</th><th>Grand Total</th><th>Status</th><th>Balasan</th><th></th></tr></thead>
           <tbody>
             {rows.length===0 && <tr><td colSpan={8} className="text-center py-6 text-slate-400">Tidak ada RFQ / PO menunggu</td></tr>}
             {rows.map(p=>(
@@ -239,14 +287,62 @@ export function VendorRFQs() {
                 <td className="text-xs">{(p.taxes_snapshot||[]).map(t=>t.code).join(", ") || (p.tax_percent?`PPN ${p.tax_percent}%`:"-")}</td>
                 <td className="font-mono font-semibold">{fmtIDR(p.amount_total || p.total)}</td>
                 <td><span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS[p.status]||"bg-slate-100"}`}><Clock size={10} className="inline mr-1"/>{p.status}</span></td>
-                <td className="text-xs">{p.order_date ? new Date(p.order_date).toLocaleDateString("id-ID") : "-"}</td>
-                <td className="text-right"><button onClick={()=>setDetailId(p.id)} className="p-1 hover:bg-slate-100 rounded" data-testid={`vrfq-view-${p.id}`}><Eye size={14}/></button></td>
+                <td className="text-xs">{p.vendor_reply ? <span className="text-blue-700 font-semibold">✓ Dibalas</span> : <span className="text-slate-400">Belum</span>}</td>
+                <td className="text-right whitespace-nowrap">
+                  <button onClick={()=>setDetailId(p.id)} className="p-1 hover:bg-slate-100 rounded" data-testid={`vrfq-view-${p.id}`}><Eye size={14}/></button>
+                  <button onClick={()=>openReply(p)} className="ml-1 text-[10px] px-2 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded font-semibold" data-testid={`vrfq-reply-${p.id}`}>Balas Harga</button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
       <PODetailSheet poId={detailId} onClose={()=>setDetailId(null)} />
+
+      <Dialog open={!!replyFor} onOpenChange={(v)=>!v && setReplyFor(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Balas Harga — {replyFor?.po_number}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="flex gap-4 items-center text-sm">
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input type="radio" checked={reply.can_fulfill} onChange={()=>setReply({...reply, can_fulfill: true})} data-testid="rfq-reply-canfulfill"/>
+                Bisa penuhi (konfirmasi / counter harga)
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input type="radio" checked={!reply.can_fulfill} onChange={()=>setReply({...reply, can_fulfill: false})} data-testid="rfq-reply-decline"/>
+                Tidak bisa penuhi (tolak)
+              </label>
+            </div>
+            {reply.can_fulfill && (
+              <div className="border border-slate-200 rounded overflow-hidden">
+                <table className="data-table">
+                  <thead><tr><th>Item</th><th>Qty</th><th>Original Price</th><th>Counter Price</th><th>Catatan</th></tr></thead>
+                  <tbody>
+                    {reply.items.map((it, i) => (
+                      <tr key={i}>
+                        <td className="text-xs">{it.product_name}</td>
+                        <td>{it.qty}</td>
+                        <td className="font-mono text-xs text-slate-400">{fmtIDR(it.original_price)}</td>
+                        <td><Input type="number" value={it.price} onChange={e=>{
+                          const items=[...reply.items]; items[i]={...items[i], price: e.target.value}; setReply({...reply, items});
+                        }} className="h-8 text-xs w-32" data-testid={`rfq-item-price-${i}`}/></td>
+                        <td><Input value={it.notes} onChange={e=>{
+                          const items=[...reply.items]; items[i]={...items[i], notes: e.target.value}; setReply({...reply, items});
+                        }} className="h-8 text-xs" data-testid={`rfq-item-notes-${i}`}/></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="label-tiny">Estimasi Pengiriman (hari)</Label><Input type="number" value={reply.delivery_days} onChange={e=>setReply({...reply, delivery_days: e.target.value})} data-testid="rfq-reply-days"/></div>
+              <div className="col-span-1"><Label className="label-tiny">Catatan Umum</Label><Textarea value={reply.overall_notes} onChange={e=>setReply({...reply, overall_notes: e.target.value})} data-testid="rfq-reply-notes"/></div>
+            </div>
+          </div>
+          <DialogFooter><Button onClick={submitReply} data-testid="rfq-reply-submit">Kirim Balasan</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

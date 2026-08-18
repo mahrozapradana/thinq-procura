@@ -19,6 +19,7 @@ class TaxIn(BaseModel):
     tax_type: str = "sales"  # sales | withholding | other
     description: Optional[str] = None
     is_active: bool = True
+    odoo_code: Optional[str] = None  # exact Odoo account.tax name for XML-RPC mapping
 
 
 def _require_admin(user: dict):

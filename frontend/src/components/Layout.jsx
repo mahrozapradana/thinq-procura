@@ -88,6 +88,9 @@ export default function Layout({ children }) {
               <NavLink to="/invoices" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-invoices">
                 <Receipt size={16}/> Invoice Finance
               </NavLink>
+              <NavLink to="/tax-reports" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-tax-reports">
+                <ScrollText size={16}/> Laporan Pajak
+              </NavLink>
               <div className="side-group-label">Master Data</div>
               <NavLink to="/masters" className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-masters">
                 <Package size={16}/> Master Data

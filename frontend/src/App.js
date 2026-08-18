@@ -17,6 +17,7 @@ import VendorsMgmt from "@/pages/VendorsMgmt";
 import CustomsDocuments from "@/pages/CustomsDocuments";
 import WarehouseStock from "@/pages/WarehouseStock";
 import InvoicesFinance from "@/pages/InvoicesFinance";
+import TaxReports from "@/pages/TaxReports";
 import SettingsPage from "@/pages/SettingsPage";
 import {
   VendorHome, VendorTenders, VendorPOs, VendorRFQs, VendorShipments, VendorInvoices, VendorLS, VendorProfile,
@@ -47,6 +48,7 @@ function App() {
           <Route path="/customs" element={<ProtectedRoute><Layout><CustomsDocuments/></Layout></ProtectedRoute>} />
           <Route path="/stock" element={<ProtectedRoute><Layout><WarehouseStock/></Layout></ProtectedRoute>} />
           <Route path="/invoices" element={<ProtectedRoute><Layout><InvoicesFinance/></Layout></ProtectedRoute>} />
+          <Route path="/tax-reports" element={<ProtectedRoute><Layout><TaxReports/></Layout></ProtectedRoute>} />
           <Route path="/masters" element={<ProtectedRoute><Layout><MasterData/></Layout></ProtectedRoute>} />
           <Route path="/budgets" element={<ProtectedRoute><Layout><Budgets/></Layout></ProtectedRoute>} />
           <Route path="/approvals" element={<ProtectedRoute><Layout><ApprovalSettings/></Layout></ProtectedRoute>} />

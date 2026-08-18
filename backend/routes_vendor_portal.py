@@ -118,6 +118,66 @@ async def vendor_po_detail(pid: str, user=Depends(get_current_active_user)):
     return po
 
 
+@router.post("/vendor-portal/pos/{pid}/acknowledge")
+async def vendor_acknowledge_po(pid: str, user=Depends(get_current_active_user)):
+    """Vendor confirms receipt of an approved/sent PO."""
+    vid = _require_vendor(user)
+    db = get_db()
+    po = await db.pos.find_one({"id": pid, "vendor_id": vid})
+    if not po:
+        raise HTTPException(404, "PO tidak ditemukan")
+    if po.get("status") not in ("approved", "sent"):
+        raise HTTPException(400, "Hanya PO status approved/sent yang bisa diakui")
+    if po.get("vendor_acknowledged"):
+        raise HTTPException(400, "PO ini sudah diakui sebelumnya")
+    await db.pos.update_one(
+        {"id": pid},
+        {"$set": {
+            "vendor_acknowledged": True,
+            "vendor_acknowledged_at": now_iso(),
+            "vendor_acknowledged_by": user["id"],
+            "vendor_acknowledged_by_name": user.get("name"),
+        }},
+    )
+    return {"ok": True, "acknowledged_at": now_iso()}
+
+
+class RFQReplyItem(BaseModel):
+    item_index: int
+    price: Optional[float] = None  # counter price per unit
+    notes: Optional[str] = None
+
+
+class RFQReplyIn(BaseModel):
+    items: List[RFQReplyItem] = []
+    overall_notes: Optional[str] = None
+    delivery_days: Optional[int] = None
+    can_fulfill: bool = True  # false = decline outright
+
+
+@router.post("/vendor-portal/rfqs/{pid}/reply")
+async def vendor_rfq_reply(pid: str, payload: RFQReplyIn, user=Depends(get_current_active_user)):
+    """Vendor sends counter/confirm prices while PO is still draft/pending_approval."""
+    vid = _require_vendor(user)
+    db = get_db()
+    po = await db.pos.find_one({"id": pid, "vendor_id": vid})
+    if not po:
+        raise HTTPException(404, "RFQ tidak ditemukan")
+    if po.get("status") not in ("draft", "pending_approval"):
+        raise HTTPException(400, "RFQ sudah tidak dapat direspons (status berubah)")
+    reply_doc = {
+        "vendor_id": vid,
+        "vendor_name": user.get("name"),
+        "can_fulfill": payload.can_fulfill,
+        "delivery_days": payload.delivery_days,
+        "overall_notes": payload.overall_notes,
+        "items": [i.model_dump() for i in payload.items],
+        "submitted_at": now_iso(),
+    }
+    await db.pos.update_one({"id": pid}, {"$set": {"vendor_reply": reply_doc}})
+    return {"ok": True, "reply": reply_doc}
+
+
 class BidIn(BaseModel):
     price: float
     delivery_days: Optional[int] = None

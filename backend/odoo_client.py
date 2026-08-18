@@ -108,6 +108,34 @@ async def sync_vendors_to_odoo() -> dict:
     return {"ok": True, "mocked": False, "synced_count": synced, "message": f"Live sync: {synced}/{len(vendors)} vendors"}
 
 
+async def _resolve_odoo_tax_ids(client: "OdooClient", db, tax_ids: list[str]) -> list[int]:
+    """Map local tax_ids -> Odoo account.tax ids by exact name/code match. Cached per call."""
+    if not tax_ids:
+        return []
+    local_taxes = await db.taxes.find({"id": {"$in": tax_ids}}, {"_id": 0}).to_list(50)
+    resolved: list[int] = []
+    for t in local_taxes:
+        needle = t.get("odoo_code") or t.get("name") or t.get("code")
+        if not needle:
+            continue
+        try:
+            found = await client.execute(
+                "account.tax", "search",
+                [[["name", "=", needle], ["type_tax_use", "in", ["purchase", "none"]]]],
+                {"limit": 1},
+            )
+            if not found:
+                # fallback: search by description or code
+                found = await client.execute("account.tax", "search", [[["name", "ilike", needle]]], {"limit": 1})
+            if found:
+                resolved.append(found[0])
+            else:
+                logger.warning(f"odoo tax not found for '{needle}' (local code={t.get('code')})")
+        except Exception as e:
+            logger.warning(f"odoo tax lookup fail for {needle}: {e}")
+    return resolved
+
+
 async def sync_pos_to_odoo() -> dict:
     db = get_db()
     client = await get_odoo_client()
@@ -115,19 +143,41 @@ async def sync_pos_to_odoo() -> dict:
     if not client:
         return {"ok": True, "mocked": True, "synced_count": len(pos), "message": f"[MOCK] {len(pos)} POs (Odoo belum di-enable)"}
     synced = 0
+    tax_map_hits = 0
     for p in pos:
         try:
-            partner = await client.execute("res.partner", "search", [[["email", "=", (await db.vendors.find_one({"id": p["vendor_id"]}) or {}).get("email", "")]]], {"limit": 1})
+            vendor = await db.vendors.find_one({"id": p["vendor_id"]}) or {}
+            partner = await client.execute("res.partner", "search", [[["email", "=", vendor.get("email", "")]]], {"limit": 1})
+            odoo_tax_ids = await _resolve_odoo_tax_ids(client, db, p.get("tax_ids") or [])
+            if odoo_tax_ids:
+                tax_map_hits += 1
+            # Build order lines with tax_ids many2many
+            order_lines = []
+            for it in (p.get("items") or []):
+                prod_search = await client.execute("product.product", "search", [[["default_code", "=", it.get("product_code") or it.get("product_id", "")[:8]]]], {"limit": 1})
+                line = (0, 0, {
+                    "name": it.get("product_name") or it.get("product_id"),
+                    "product_qty": float(it.get("qty") or 0),
+                    "price_unit": float(it.get("price") or 0),
+                    "taxes_id": [(6, 0, odoo_tax_ids)] if odoo_tax_ids else [(5, 0, 0)],
+                })
+                if prod_search:
+                    line[2]["product_id"] = prod_search[0]
+                order_lines.append(line)
             data = {
                 "name": p["po_number"],
                 "partner_id": partner[0] if partner else False,
-                "amount_total": p.get("total", 0),
+                "order_line": order_lines,
             }
-            await client.execute("purchase.order", "create", [data])
+            existing = await client.execute("purchase.order", "search", [[["name", "=", p["po_number"]]]], {"limit": 1})
+            if existing:
+                await client.execute("purchase.order", "write", [existing, {"order_line": order_lines}])
+            else:
+                await client.execute("purchase.order", "create", [data])
             synced += 1
         except Exception as e:
             logger.warning(f"odoo PO sync fail for {p['po_number']}: {e}")
-    return {"ok": True, "mocked": False, "synced_count": synced, "message": f"Live sync: {synced}/{len(pos)} POs"}
+    return {"ok": True, "mocked": False, "synced_count": synced, "tax_mapped": tax_map_hits, "message": f"Live sync: {synced}/{len(pos)} POs (tax mapped on {tax_map_hits})"}
 
 
 async def test_odoo() -> dict:
