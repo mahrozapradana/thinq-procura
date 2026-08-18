@@ -181,7 +181,22 @@ async def create_customs(payload: CustomsDocIn, user=Depends(get_current_active_
 @router.put("/customs-docs/{cid}")
 async def update_customs(cid: str, payload: CustomsDocIn, user=Depends(get_current_active_user)):
     db = get_db()
+    prev = await db.customs_docs.find_one({"id": cid}, {"_id": 0}) or {}
     data = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # Audit: record what changed
+    changed = {}
+    for k, v in data.items():
+        if prev.get(k) != v:
+            changed[k] = {"before": prev.get(k), "after": v}
+    if changed:
+        await db.bc_audit.insert_one({
+            "doc_id": cid,
+            "by": user["id"],
+            "by_name": user["name"],
+            "at": now_iso(),
+            "changes": changed,
+            "action": "update",
+        })
     await db.customs_docs.update_one({"id": cid}, {"$set": {**data, "updated_at": now_iso()}})
     return await db.customs_docs.find_one({"id": cid}, {"_id": 0})
 

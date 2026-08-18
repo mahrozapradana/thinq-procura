@@ -148,7 +148,7 @@ export default function Inventory() {
           </div>
           <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
             <table className="data-table">
-              <thead><tr><th>No GR</th><th>PO</th><th>Received By</th><th>Items</th><th>Tanggal</th></tr></thead>
+              <thead><tr><th>No GR</th><th>PO</th><th>Received By</th><th>Items</th><th>Tanggal</th><th></th></tr></thead>
               <tbody>
                 {receipts.length===0 && <tr><td colSpan={5} className="text-center py-6 text-slate-400">Belum ada penerimaan</td></tr>}
                 {receipts.map(r=>(
@@ -158,6 +158,13 @@ export default function Inventory() {
                     <td>{r.received_by_name}</td>
                     <td>{r.items?.length || 0} item</td>
                     <td className="text-xs">{new Date(r.created_at).toLocaleString("id-ID")}</td>
+                    <td className="text-right">
+                      <button onClick={async ()=>{
+                        const t = localStorage.getItem("access_token");
+                        const res = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/goods-receipts/${r.id}/labels.pdf`, { credentials:"include", headers: t?{Authorization:`Bearer ${t}`}:{}});
+                        const b = await res.blob(); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href=u; a.download=`labels_${r.receipt_number}.pdf`; a.click(); URL.revokeObjectURL(u);
+                      }} className="text-xs px-2 py-1 bg-slate-900 text-white rounded" data-testid={`receipt-labels-${r.id}`}>Print Labels</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
