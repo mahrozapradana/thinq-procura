@@ -8,7 +8,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Trash2, Eye, PlayCircle, Award, StopCircle, Upload, Paperclip, X, Unlock, Lock, History } from "lucide-react";
+import { Plus, Trash2, Eye, PlayCircle, Award, StopCircle, Upload, Paperclip, X, Unlock, Lock, History, Download, Search } from "lucide-react";
+import { Fragment } from "react";
 import Pagination from "@/components/Pagination";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import { useDataTable } from "@/components/useDataTable";
@@ -29,11 +30,32 @@ export default function Tenders() {
   const [form, setForm] = useState({ items:[], invited_vendor_ids:[], is_bonded:false, is_sealed:false, attachments:[] });
   const [uploading, setUploading] = useState(false);
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [groupBy, setGroupBy] = useState("none");
+  const [statusFilter, setStatusFilter] = useState("all");
   const perPage = 10;
   const dt = useDataTable(rows, { storageKey: "tenders", defaultSort: { key: "created_at", dir: "desc" } });
-  const total = dt.sortedRows.length;
+  const filtered = dt.sortedRows.filter(t => {
+    if (statusFilter !== "all" && t.status !== statusFilter) return false;
+    if (!search) return true;
+    const s = search.toLowerCase();
+    return (t.tender_number||"").toLowerCase().includes(s) || (t.title||"").toLowerCase().includes(s) || (t.description||"").toLowerCase().includes(s);
+  });
+  const total = filtered.length;
   const pages = Math.max(1, Math.ceil(total/perPage));
-  const paged = dt.sortedRows.slice((page-1)*perPage, page*perPage);
+  const paged = groupBy === "none" ? filtered.slice((page-1)*perPage, page*perPage) : filtered;
+  const grouped = (() => {
+    if (groupBy === "none") return { "": paged };
+    const g = {};
+    for (const t of filtered) {
+      let k = "-";
+      if (groupBy === "status") k = t.status || "-";
+      else if (groupBy === "type") k = t.is_sealed ? "Sealed" : (t.is_bonded ? "Bonded" : "Standard");
+      else if (groupBy === "month") k = (t.created_at||"").slice(0,7) || "-";
+      (g[k] = g[k] || []).push(t);
+    }
+    return g;
+  })();
 
   const load = () => api.get("/tenders").then(r=>setRows(r.data));
   const reloadDetail = async (id) => { const r = await api.get(`/tenders/${id}`); setDetail(r.data); };
@@ -168,21 +190,50 @@ export default function Tenders() {
         </Dialog>
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative">
+          <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"/>
+          <Input placeholder="Cari nomor / judul / deskripsi..." value={search} onChange={e=>{setPage(1); setSearch(e.target.value);}} className="pl-8 max-w-xs" data-testid="tender-search"/>
+        </div>
+        <div className="flex items-center gap-1">
+          <Label className="text-xs text-slate-600">Status:</Label>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="h-8 w-32 text-xs" data-testid="tender-status-filter"><SelectValue/></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Semua</SelectItem>
+              <SelectItem value="draft">Draft</SelectItem>
+              <SelectItem value="open">Open</SelectItem>
+              <SelectItem value="closed">Closed</SelectItem>
+              <SelectItem value="awarded">Awarded</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center gap-1">
+          <Label className="text-xs text-slate-600">Group by:</Label>
+          <Select value={groupBy} onValueChange={setGroupBy}>
+            <SelectTrigger className="h-8 w-32 text-xs" data-testid="tender-groupby"><SelectValue/></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">— Tanpa —</SelectItem>
+              <SelectItem value="status">Status</SelectItem>
+              <SelectItem value="type">Tipe (Sealed/Bonded)</SelectItem>
+              <SelectItem value="month">Bulan</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <ExportCsvButton rows={rows} filename="tenders" columns={[
           {key:"tender_number",label:"No Tender"},{key:"title",label:"Judul"},{key:"deadline",label:"Deadline"},{key:"status",label:"Status"},
           {label:"Bids",get:t=>t.bids?.filter(b=>b.status==="submitted").length||0},
         ]}/>
+        <div className="text-xs text-slate-500 ml-auto">{total} tender</div>
       </div>
       <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
           <thead><tr><th>No Tender</th><th>Judul</th><th>Deadline</th><th>Undangan</th><th>Bids</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            {rows.length===0 && <tr><td colSpan={7} className="text-center py-6 text-slate-400">Belum ada tender</td></tr>}
-            {paged.map(t => (
+            {total===0 ? <tr><td colSpan={7} className="text-center py-6 text-slate-400">Belum ada tender</td></tr> : groupBy === "none" ? paged.map(t => (
               <tr key={t.id} data-testid={`tender-row-${t.id}`}>
                 <td className="font-mono text-xs" data-label="No Tender">{t.tender_number}</td>
-                <td data-label="Judul">{t.title}</td>
+                <td data-label="Judul">{t.title} {(t.attachments||[]).length > 0 && <span className="ml-1 text-[10px] text-slate-500" title={`${t.attachments.length} dokumen pendukung`}><Paperclip size={10} className="inline"/> {t.attachments.length}</span>}</td>
                 <td className="text-xs" data-label="Deadline">{t.deadline}</td>
                 <td className="text-xs" data-label="Undangan">{t.invited_vendor_ids?.length ? `${t.invited_vendor_ids.length} vendor` : "OPEN"}</td>
                 <td data-label="Bids">{t.bids?.filter(b=>b.status==="submitted").length || 0}</td>
@@ -194,6 +245,26 @@ export default function Tenders() {
                   {t.status==="open" && <button onClick={()=>closeT(t.id)} className="p-1" data-testid={`tender-close-${t.id}`}><StopCircle size={14} className="text-amber-600"/></button>}
                 </td>
               </tr>
+            )) : Object.entries(grouped).map(([gk, ts]) => (
+              <Fragment key={`grp-${gk}`}>
+                <tr className="bg-slate-100" data-testid={`tender-group-${gk}`}>
+                  <td colSpan={7} className="font-semibold text-xs px-2 py-1 uppercase text-slate-700">{gk} <span className="text-slate-400 font-normal">({ts.length})</span></td>
+                </tr>
+                {ts.map(t => (
+                  <tr key={t.id} data-testid={`tender-row-${t.id}`}>
+                    <td className="font-mono text-xs">{t.tender_number}</td>
+                    <td>{t.title} {(t.attachments||[]).length > 0 && <span className="ml-1 text-[10px] text-slate-500"><Paperclip size={10} className="inline"/> {t.attachments.length}</span>}</td>
+                    <td className="text-xs">{t.deadline}</td>
+                    <td className="text-xs">{t.invited_vendor_ids?.length ? `${t.invited_vendor_ids.length} vendor` : "OPEN"}</td>
+                    <td>{t.bids?.filter(b=>b.status==="submitted").length || 0}</td>
+                    <td><span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS_STYLE[t.status]||"bg-slate-100"}`}>{t.status}</span></td>
+                    <td className="text-right whitespace-nowrap">
+                      <button onClick={()=>setDetail(t)} className="p-1 hover:bg-slate-100 rounded"><Eye size={14}/></button>
+                      {t.is_sealed && <Lock size={12} className={`inline ml-1 ${t.sealed_revealed_at?"text-emerald-500":"text-purple-500"}`}/>}
+                    </td>
+                  </tr>
+                ))}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -220,12 +291,14 @@ export default function Tenders() {
                 )}
                 {(detail.attachments||[]).length > 0 && (
                   <div data-testid="tender-detail-attachments">
-                    <div className="label-tiny mb-2 flex items-center gap-1"><Paperclip size={12}/> Dokumen Pendukung</div>
+                    <div className="label-tiny mb-2 flex items-center gap-1"><Paperclip size={12}/> Dokumen Pendukung ({detail.attachments.length})</div>
                     <ul className="space-y-1">
                       {detail.attachments.map((a,i)=>(
                         <li key={i} className="flex items-center gap-2 text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1">
-                          <a href={a.url} target="_blank" rel="noreferrer" className="underline text-blue-700 truncate flex-1">{a.filename}</a>
+                          <Paperclip size={12} className="text-slate-500"/>
+                          <a href={a.url} target="_blank" rel="noreferrer" className="underline text-blue-700 truncate flex-1" download={a.filename} data-testid={`tender-doc-${i}`}>{a.filename}</a>
                           <span className="text-slate-400">{a.size ? `${(a.size/1024).toFixed(1)} KB` : ""}</span>
+                          <a href={a.url} target="_blank" rel="noreferrer" download={a.filename} className="text-blue-700 hover:text-blue-900" title="Unduh"><Download size={12}/></a>
                         </li>
                       ))}
                     </ul>

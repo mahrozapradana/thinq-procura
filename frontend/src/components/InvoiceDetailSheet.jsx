@@ -150,6 +150,25 @@ export default function InvoiceDetailSheet({ invoiceId, source = "admin", onClos
               </div>
 
               {inv.notes && <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2"><b>Catatan:</b> {inv.notes}</div>}
+
+              {/* Audit Trail */}
+              {(inv.audit_trail||[]).length > 0 && (
+                <div data-testid="invd-audit-trail">
+                  <div className="label-tiny mb-2">Audit Trail ({inv.audit_trail.length})</div>
+                  <ol className="relative border-l-2 border-slate-300 ml-1 space-y-2 pl-3">
+                    {inv.audit_trail.map((a, i) => (
+                      <li key={i} className="text-xs" data-testid={`invd-audit-${i}`}>
+                        <div className="absolute -left-[7px] w-3 h-3 bg-white border-2 border-slate-400 rounded-full mt-0.5"></div>
+                        <div>
+                          <span className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded mr-2 ${a.action==="paid"?"bg-emerald-100 text-emerald-700":a.action==="cancelled"?"bg-red-100 text-red-700":a.action==="edited"?"bg-blue-100 text-blue-700":"bg-slate-100 text-slate-700"}`}>{a.action}</span>
+                          <b>{a.by_name || a.by || "system"}</b> <span className="text-slate-500">— {a.at ? new Date(a.at).toLocaleString("id-ID") : ""}</span>
+                        </div>
+                        {a.details && <div className="text-slate-500 italic mt-0.5">{a.details}</div>}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
             </div>
           </>
         )}

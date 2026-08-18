@@ -492,6 +492,22 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - P2: Vendor pricelist bulk export back to CSV for round-trip editing
 - P3: Radix a11y polish, chart mobile responsiveness
 
+## Iteration 28 – 2026-02-18 (PR Verified Hint, Vendor Badge, Overdue Cron, Invoice Audit, Tender Filter/Search/Group)
+### Added
+- **PR Auto-Fill Verified Price**: On each PR item row, fetching `/api/pricelists/cheapest?product_id=X&only_verified=true` shows a green chip "✓ Verified <currency> <price> · <vendor>" (`pr-verified-hint-{i}`). Click → auto-fills the price input + sets `preferred_vendor_id`.
+- **Verified Vendor Badge**: In the PR vendor-suggestion cards, a small emerald "✓ Verified Rp X" badge (`pr-suggest-verified-{i}`) surfaces when that vendor's cheapest verified pricelist matches an item in the PR.
+- **Overdue Invoice Reminder (cron)**: New nightly cron `overdue-invoice-reminder` (08:00 UTC) via `.emergent/crons.yml`. `_dispatch_overdue_invoice_reminder` collects outstanding invoices with `due_date<today` and emails all finance+admin users a summary table with grand total.
+- **Invoice Audit Trail**: `submit_invoice` now seeds `audit_trail=[created]`. `pay_invoice` pushes `paid` entry (idempotent — returns `already_paid:true` on 2nd call). New `POST /api/invoices/{iid}/cancel` pushes `cancelled` + resets PO invoice_status. `<InvoiceDetailSheet>` renders timeline (`invd-audit-trail` / `invd-audit-{i}`) with color-coded action badges.
+- **Tenders Search/Filter/Group-by**: Admin `/tenders` gets a toolbar row with search box (`tender-search`), status filter (`tender-status-filter`), and group-by (`tender-groupby`: none/status/type/month). Grouped rendering shows section headers with counts. Title cell shows Paperclip+count when tender has attachments.
+- **Tender Attachment Download**: Detail sheet lists supporting docs with explicit download icon + `download` attribute (`tender-doc-{i}`) enabling direct save from vendor and admin views.
+### Verified via curl
+- Overdue cron enqueue OK. Pay endpoint idempotent + audit entry stored. Cheapest pricelist lookup returns verified vendor for wire-up.
+### Backlog / Next
+- P1: Wire audit_trail into vendor's own invoice detail view (currently admin-focused UX)
+- P2: Filter chip removal in tenders (e.g. active filters shown as removable pills)
+- P2: Verified badge in PO builder as well (currently only PR)
+- P3: Invoice edit endpoint that pushes 'edited' audit entry with diff
+
 ## Iteration 27 – 2026-02-18 (Invoice Partial Billing, Doc Uploads, Filter/Group, PDF Export, Bulk PO Import, Verified Suggestion)
 ### Added
 - **Invoice Partial Billing (`line_items`)**: Vendor picks which PO items to bill + qty (max = remaining). Backend endpoints `GET /api/{vendor-portal,}/pos/{pid}/billing-status` return per-item `qty_ordered/qty_billed/qty_remaining`. Invoice submit validates + snapshots per-line unit_price/discount/subtotal. PO `invoice_status` auto-transitions to `partial` or `complete` based on remaining qty.

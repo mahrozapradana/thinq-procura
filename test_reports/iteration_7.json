@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 7 e-Procurement testing (backend + frontend). Backend pytest: 7/7 passed — Cheapest verified pricelist endpoint returns the seeded Rp 12,500,000 for TEST_Laptop v2 (verified=true) + correct empty shape; Overdue Invoice Reminder cron endpoint (GET /api/cron/overdue-invoice-reminder) returns {ok, run_id, enqueued:true}; Invoice detail exposes audit_trail; POST /invoices/{iid}/pay is idempotent (2nd call returns already_paid:true), pushes 'paid' entry, and 403s for vendor role. Frontend: Tenders admin toolbar works (tender-search, tender-status-filter, tender-groupby, tender-group-* headers), InvoiceDetailSheet Audit Trail timeline renders correctly with PAID badge. CRITICAL: PR builder verified-hint feature is BROKEN — selecting a product in /pr → 'Buat PR' throws a React uncaught runtime error 'verifiedHints is not defined' — the useState for verifiedHints/setVerifiedHints was never declared in PurchaseRequests.jsx, so the entire pr-verified-hint-{i} chip + pr-suggest-verified-{i} badge feature crashes the dialog.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "PurchaseRequests.jsx", "issue": "ReferenceError: verifiedHints is not defined. Lines 152, 162, 164, 165, 201 reference verifiedHints/setVerifiedHints but there is NO useState declaration. Reproduce: /pr → Buat PR → +Item → pick any product from dropdown → red 'Uncaught runtime errors' overlay appears from onValueChange handler. Fix: add `const [verifiedHints, setVerifiedHints] = useState({});` near line 43 (form state block).", "selector": "[data-testid=pr-item-prod-0]", "priority": "CRITICAL"}
+    ],
+    "integration_issues": [
+      {"flow": "PR builder → verified hint chip auto-fill", "issue": "Feature unreachable due to above ReferenceError — pr-verified-hint-{i} chip and pr-suggest-verified-{i} badge never render and cannot be validated end-to-end.", "affected_selectors": ["pr-verified-hint-0", "pr-suggest-verified-0"]}
+    ],
+    "design_issues": [
+      {"screen": "Invoice detail sheet (dark mode)", "issues": ["DialogContent still emits 'requires a DialogTitle' + 'Missing Description/aria-describedby' a11y warnings — carried over from iter 6."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration7_features.py",
+    "/app/test_reports/pytest/iter7_results.xml"
+  ],
+  "action_items": [
+    "URGENT — /app/frontend/src/pages/PurchaseRequests.jsx: add missing useState declaration `const [verifiedHints, setVerifiedHints] = useState({});` (place near line 43 alongside other useState hooks). Without this, the entire iteration-7 PR verified-hint / vendor verified-badge feature crashes with an uncaught ReferenceError as soon as a product is picked.",
+    "After the fix, retest: pick product cf433378-5c42-4eed-893b-8b2feb8b47da (TEST_Laptop v2) → confirm green pr-verified-hint-0 chip shows 'IDR 12.500.000 · PT Test Vendor 423f4216', click chip → price input becomes 12500000 AND preferred_vendor_id set to that vendor, then in vendor suggestion cards a pr-suggest-verified-0 emerald badge appears on the matching vendor row.",
+    "(Iter6 carry-over) Add DialogDescription / aria-describedby to Invoice detail + Buat PR / Buat Tender dialogs to clear a11y console warnings."
+  ],
+  "critical_code_review_comments": [
+    "PurchaseRequests.jsx line 43: form useState exists but no `verifiedHints` state — obvious oversight, likely missed during copy-paste when iter7 feature was added. This is a hard runtime crash, not a subtle bug.",
+    "PurchaseRequests.jsx: on product change, GET /pricelists/cheapest fires without a cancel-token / cleanup on unmount → potential setState-after-unmount warning; not observed here but worth defensive handling.",
+    "routes_cron.py _dispatch_overdue_invoice_reminder: sends one email digest to a combined finance+admin list. Consider adding per-user branch filter or unsubscribe path — but acceptable for MVP.",
+    "routes_vendor_portal.py cancel_invoice: recomputation of inv_status uses `fresh_billing.get('items',[{}])[0].get('qty_ordered',0)` which only checks the first item — should sum over all items when deciding 'pending' vs 'partial'. Currently rarely triggered but is a latent logic bug."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration7_features.py (new)"
+  ],
+  "success_rate": {"backend": "100% (7/7)", "frontend": "~66% (Tenders toolbar + Invoice audit trail OK; PR verified-hint broken)"},
+  "test_credentials": "Admin: mahrozapradana46@gmail.com/admin123 · Vendor: test_vendor_423f4216@example.com/vendor123",
+  "seed_data_creation": "None. Verified pricelist for product cf433378-5c42-4eed-893b-8b2feb8b47da (Rp 12,500,000 from PT Test Vendor 423f4216) already seeded and confirmed via GET /api/pricelists/cheapest.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend for iteration-7 is 100% green (see /app/backend/tests/test_iteration7_features.py — uses pytest-xdist loadscope per pytest.ini and 60s HTTP timeouts). The only remaining blocker is a missing `useState` for verifiedHints in PurchaseRequests.jsx which crashes the dialog on any product selection. Once E1 adds the state, the pr-verified-hint-{i} click-to-autofill + pr-suggest-verified-{i} badge flow should light up immediately. Do NOT retest iter 5/6 endpoints — those regressions still pass.",
+  "rca of the issue": "PurchaseRequests.jsx introduces `verifiedHints` and `setVerifiedHints` inside the product-select onValueChange callback (lines 162-165) but never declares them with useState. When the callback fires (product picked), React throws ReferenceError: verifiedHints is not defined and remounts the error overlay. Fix is a single line: `const [verifiedHints, setVerifiedHints] = useState({});` in the same state-declaration block as `form`, `depts`, `products`, etc."
+}

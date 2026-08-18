@@ -42,6 +42,7 @@ export default function PurchaseRequests() {
   const [detail, setDetail] = useState(null);
   const [form, setForm] = useState({ items: [], procurement_type:"DIRECT", is_bonded: false, attachments: [], preferred_vendor_id: null });
   const [vendorSuggestions, setVendorSuggestions] = useState([]);
+  const [verifiedHints, setVerifiedHints] = useState({});
 
   const load = () => api.get(`/prs?page=${page}&page_size=20&q=${encodeURIComponent(q)}`).then(r=>{ setRows(r.data.items); setTotal(r.data.total); setPages(r.data.pages); });
   useEffect(() => {
@@ -148,22 +149,48 @@ export default function PurchaseRequests() {
 
               <div className="border border-slate-200 rounded p-3">
                 <div className="flex justify-between mb-2"><div className="label-tiny">Items</div><Button size="sm" variant="outline" onClick={addItem} data-testid="pr-add-item">+ Item</Button></div>
-                {form.items.map((it,i)=>(
-                  <div key={i} className="grid grid-cols-12 gap-2 mb-2 items-end">
-                    <div className="col-span-6">
-                      <Select value={it.product_id} onValueChange={v=>{
-                        const p = products.find(x=>x.id===v);
-                        setItem(i,"product_id",v); if(p) setItem(i,"price",p.default_price||0);
-                      }}>
-                        <SelectTrigger data-testid={`pr-item-prod-${i}`}><SelectValue placeholder="Pilih produk"/></SelectTrigger>
-                        <SelectContent>{products.map(p=><SelectItem key={p.id} value={p.id}>{p.code} — {p.name}</SelectItem>)}</SelectContent>
-                      </Select>
+                {form.items.map((it,i)=>{
+                  const hint = it.product_id ? verifiedHints[it.product_id] : null;
+                  return (
+                  <div key={i} className="mb-2">
+                    <div className="grid grid-cols-12 gap-2 items-end">
+                      <div className="col-span-6">
+                        <Select value={it.product_id} onValueChange={v=>{
+                          const p = products.find(x=>x.id===v);
+                          setItem(i,"product_id",v);
+                          if(p) setItem(i,"price",p.default_price||0);
+                          // Fetch verified cheapest for this product
+                          if (v && !verifiedHints[v]) {
+                            api.get(`/pricelists/cheapest?product_id=${v}&only_verified=true`)
+                              .then(r=>setVerifiedHints(prev=>({...prev, [v]: r.data})))
+                              .catch(()=>setVerifiedHints(prev=>({...prev, [v]: null})));
+                          }
+                        }}>
+                          <SelectTrigger data-testid={`pr-item-prod-${i}`}><SelectValue placeholder="Pilih produk"/></SelectTrigger>
+                          <SelectContent>{products.map(p=><SelectItem key={p.id} value={p.id}>{p.code} — {p.name}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                      <div className="col-span-2"><Input type="number" placeholder="Qty" value={it.qty} onChange={e=>setItem(i,"qty",e.target.value)} data-testid={`pr-item-qty-${i}`}/></div>
+                      <div className="col-span-3"><Input type="number" placeholder="Harga" value={it.price} onChange={e=>setItem(i,"price",e.target.value)} data-testid={`pr-item-price-${i}`}/></div>
+                      <div className="col-span-1 text-right pb-1"><button onClick={()=>rmItem(i)}><Trash2 size={14} className="text-red-500"/></button></div>
                     </div>
-                    <div className="col-span-2"><Input type="number" placeholder="Qty" value={it.qty} onChange={e=>setItem(i,"qty",e.target.value)} data-testid={`pr-item-qty-${i}`}/></div>
-                    <div className="col-span-3"><Input type="number" placeholder="Harga" value={it.price} onChange={e=>setItem(i,"price",e.target.value)} data-testid={`pr-item-price-${i}`}/></div>
-                    <div className="col-span-1 text-right pb-1"><button onClick={()=>rmItem(i)}><Trash2 size={14} className="text-red-500"/></button></div>
+                    {hint?.cheapest && (
+                      <button type="button"
+                        onClick={()=>{ setItem(i,"price", hint.cheapest.price); setForm(prev => ({...prev, preferred_vendor_id: hint.cheapest.vendor_id})); toast.success(`Harga terverifikasi ${hint.cheapest.vendor_name} dipakai`); }}
+                        className="mt-1 ml-1 inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-300 text-emerald-800 hover:bg-emerald-100"
+                        data-testid={`pr-verified-hint-${i}`}
+                        title="Klik untuk pakai harga verified ini">
+                        <span className="font-bold">✓ Verified</span>
+                        <span className="font-mono font-semibold">{(hint.cheapest.currency||"IDR")} {(hint.cheapest.price||0).toLocaleString("id-ID")}</span>
+                        <span className="text-emerald-700">· {hint.cheapest.vendor_name}</span>
+                        {hint.count > 1 && <span className="text-emerald-600/70">+{hint.count-1} lain</span>}
+                      </button>
+                    )}
+                    {it.product_id && hint && !hint.cheapest && (
+                      <span className="mt-1 ml-1 inline-block text-[10px] text-slate-400 italic">Belum ada harga verified untuk produk ini</span>
+                    )}
                   </div>
-                ))}
+                );})}
                 <div className="mt-2 flex justify-end text-sm font-heading font-bold">Total: <span className="ml-2 font-mono">{fmtIDR(formTotal)}</span></div>
               </div>
 
@@ -171,19 +198,25 @@ export default function PurchaseRequests() {
                 <div className="border border-slate-200 rounded p-3 bg-slate-50" data-testid="pr-vendor-suggest">
                   <div className="label-tiny mb-2">💡 Rekomendasi Vendor untuk PR ini (opsional)</div>
                   <div className="space-y-1">
-                    {vendorSuggestions.map((s,i)=>(
+                    {vendorSuggestions.map((s,i)=>{
+                      const productHints = form.items.map(it => verifiedHints[it.product_id]?.cheapest).filter(Boolean);
+                      const hasVerified = productHints.some(ph => ph.vendor_id === s.vendor_id);
+                      return (
                       <button type="button" key={s.vendor_id} onClick={()=>setForm({...form, preferred_vendor_id: form.preferred_vendor_id===s.vendor_id ? null : s.vendor_id})}
                         className={`w-full text-left flex items-center gap-3 p-2 rounded border ${form.preferred_vendor_id===s.vendor_id?"border-slate-900 bg-white ring-1 ring-slate-900":"border-slate-200 bg-white hover:border-slate-400"}`}
                         data-testid={`pr-suggest-${i}`}>
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${i===0?"bg-emerald-500 text-white":"bg-slate-200 text-slate-700"}`}>{s.score}</div>
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold truncate">{s.company_name}</div>
+                          <div className="text-sm font-semibold truncate flex items-center gap-2">
+                            {s.company_name}
+                            {hasVerified && <span className="inline-flex items-center gap-0.5 text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700" data-testid={`pr-suggest-verified-${i}`}>✓ Verified Rp {(productHints.find(ph=>ph.vendor_id===s.vendor_id)?.price||0).toLocaleString("id-ID")}</span>}
+                          </div>
                           <div className="text-[10px] text-slate-500">{s.reasons.join(" · ") || "Vendor tersedia"}</div>
                         </div>
                         {i===0 && <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">Top</span>}
                         {form.preferred_vendor_id===s.vendor_id && <Check size={14} className="text-emerald-600"/>}
                       </button>
-                    ))}
+                    );})}
                   </div>
                   <div className="text-[10px] text-slate-500 mt-2 italic">Rekomendasi ini akan diteruskan ke procurement sebagai vendor prefer saat membuat PO.</div>
                 </div>

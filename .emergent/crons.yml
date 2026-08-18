@@ -30,3 +30,9 @@ crons:
     endpoint: "{{BASE_URL}}/api/cron/sealed-auto-reveal"
     method: GET
     enabled: true
+  - name: overdue-invoice-reminder
+    description: "Nightly 08:00 UTC: email finance the list of overdue outstanding invoices"
+    cron: "0 8 * * *"
+    endpoint: "{{BASE_URL}}/api/cron/overdue-invoice-reminder"
+    method: GET
+    enabled: true

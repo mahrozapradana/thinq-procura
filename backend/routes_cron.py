@@ -181,3 +181,53 @@ async def sealed_auto_reveal(background: BackgroundTasks, x_webhook_id: str | No
     run_id = x_webhook_id or "manual"
     background.add_task(_dispatch_sealed_auto_reveal, run_id)
     return {"ok": True, "run_id": run_id, "enqueued": True}
+
+
+
+async def _dispatch_overdue_invoice_reminder(run_id: str):
+    """Nightly: email finance a digest of outstanding invoices past due date."""
+    db = get_db()
+    today = datetime.now(timezone.utc).date().isoformat()
+    cursor = db.invoices.find(
+        {"status": "outstanding", "due_date": {"$lt": today}},
+        {"_id": 0, "invoice_number": 1, "po_number": 1, "vendor_name": 1, "amount": 1, "due_date": 1, "currency": 1},
+    ).sort("due_date", 1)
+    rows: list[dict] = []
+    async for i in cursor:
+        rows.append(i)
+    if not rows:
+        logger.info(f"[overdue-invoice] run={run_id} — no overdue invoices")
+        return
+    # Fetch finance users (finance + admin)
+    users = await db.users.find({"role": {"$in": ["finance", "admin"]}}, {"_id": 0, "email": 1}).to_list(200)
+    emails = [u["email"] for u in users if u.get("email")]
+    if not emails:
+        logger.warning(f"[overdue-invoice] run={run_id} — no finance emails configured")
+        return
+    total_amt = sum(float(r.get("amount") or 0) for r in rows)
+    trs = "".join(
+        f"<tr><td style='padding:4px 8px;font-family:monospace'>{r.get('invoice_number')}</td>"
+        f"<td style='padding:4px 8px'>{r.get('vendor_name') or '-'}</td>"
+        f"<td style='padding:4px 8px'>{r.get('due_date')}</td>"
+        f"<td style='padding:4px 8px;text-align:right;font-family:monospace'>{(r.get('currency') or 'IDR')} {float(r.get('amount') or 0):,.0f}</td></tr>"
+        for r in rows
+    )
+    subject = f"[Procura] {len(rows)} Invoice OVERDUE — total Rp {total_amt:,.0f}"
+    body = f"""
+    <h2 style='color:#DC2626'>⚠ {len(rows)} Invoice sudah lewat jatuh tempo</h2>
+    <p>Total outstanding overdue: <b>Rp {total_amt:,.0f}</b></p>
+    <table style='border-collapse:collapse;border:1px solid #E2E8F0'>
+      <thead><tr style='background:#F1F5F9'><th style='padding:6px 8px;text-align:left'>Invoice</th><th style='padding:6px 8px;text-align:left'>Vendor</th><th style='padding:6px 8px;text-align:left'>Due</th><th style='padding:6px 8px;text-align:right'>Amount</th></tr></thead>
+      <tbody>{trs}</tbody>
+    </table>
+    <p style='color:#94A3B8;font-size:11px'>Cron run: {run_id}</p>
+    """
+    await send_email(emails, subject, body)
+    logger.info(f"[overdue-invoice] run={run_id} sent={len(rows)} to {len(emails)} finance users")
+
+
+@router.get("/overdue-invoice-reminder")
+async def overdue_invoice_reminder(background: BackgroundTasks, x_webhook_id: str | None = Header(default=None)):
+    run_id = x_webhook_id or "manual"
+    background.add_task(_dispatch_overdue_invoice_reminder, run_id)
+    return {"ok": True, "run_id": run_id, "enqueued": True}

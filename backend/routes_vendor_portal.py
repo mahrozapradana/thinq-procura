@@ -793,7 +793,16 @@ async def submit_invoice(payload: InvoiceIn, user=Depends(get_current_active_use
         "currency": po.get("currency") or "IDR",
         "exchange_rate": po.get("exchange_rate") or 1.0,
         "vendor_reply": po.get("vendor_reply"),
+        "audit_trail": [{
+            "action": "created",
+            "by": user["id"],
+            "by_name": user.get("name"),
+            "at": now_iso(),
+            "details": f"Invoice dibuat untuk {len(line_snapshots)} item · total {computed_amount:,.0f} {po.get('currency') or 'IDR'}",
+        }],
         "created_at": now_iso(),
+        "created_by": user["id"],
+        "created_by_name": user.get("name"),
     }
     await db.invoices.insert_one(doc)
     # Determine PO invoice status: if all items fully billed → 'complete', else 'partial'
@@ -876,5 +885,45 @@ async def pay_invoice(iid: str, user=Depends(get_current_active_user)):
     if user["role"] not in ("admin", "finance"):
         raise HTTPException(403, "Not allowed")
     db = get_db()
-    await db.invoices.update_one({"id": iid}, {"$set": {"status": "paid", "paid_at": now_iso()}})
+    inv = await db.invoices.find_one({"id": iid}, {"_id": 0, "status": 1})
+    if not inv:
+        raise HTTPException(404, "Invoice tidak ditemukan")
+    if inv.get("status") == "paid":
+        return {"ok": True, "already_paid": True}
+    entry = {"action": "paid", "by": user["id"], "by_name": user.get("name"), "at": now_iso(), "details": "Ditandai lunas oleh finance"}
+    await db.invoices.update_one({"id": iid}, {
+        "$set": {"status": "paid", "paid_at": now_iso(), "paid_by": user["id"], "paid_by_name": user.get("name")},
+        "$push": {"audit_trail": entry},
+    })
+    return {"ok": True}
+
+
+@router.post("/invoices/{iid}/cancel")
+async def cancel_invoice(iid: str, user=Depends(get_current_active_user)):
+    if user["role"] not in ("admin", "finance"):
+        raise HTTPException(403, "Not allowed")
+    db = get_db()
+    inv = await db.invoices.find_one({"id": iid}, {"_id": 0, "status": 1, "po_id": 1})
+    if not inv:
+        raise HTTPException(404, "Invoice tidak ditemukan")
+    if inv.get("status") == "cancelled":
+        raise HTTPException(400, "Invoice sudah dibatalkan")
+    entry = {"action": "cancelled", "by": user["id"], "by_name": user.get("name"), "at": now_iso(), "details": f"Sebelumnya: {inv.get('status')}"}
+    await db.invoices.update_one({"id": iid}, {
+        "$set": {"status": "cancelled", "cancelled_at": now_iso(), "cancelled_by": user["id"]},
+        "$push": {"audit_trail": entry},
+    })
+    # Recompute PO invoice status since cancelled invoice's line items are freed up
+    if inv.get("po_id"):
+        fresh_billing = await _billing_status_for_po(db, inv["po_id"])
+        items = fresh_billing.get("items") or []
+        total_billed = sum(it.get("qty_billed", 0) for it in items)
+        total_remaining = sum(it.get("qty_remaining", 0) for it in items)
+        if total_billed == 0 and total_remaining > 0:
+            inv_status = "pending"
+        elif total_remaining <= 1e-6:
+            inv_status = "complete"
+        else:
+            inv_status = "partial"
+        await db.pos.update_one({"id": inv["po_id"]}, {"$set": {"invoice_status": inv_status}})
     return {"ok": True}
