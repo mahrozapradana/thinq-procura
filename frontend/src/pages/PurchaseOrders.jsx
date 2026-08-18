@@ -49,6 +49,19 @@ export default function PurchaseOrders() {
   const [companyRates, setCompanyRates] = useState({});
   const [rating, setRating] = useState(0);
   const [ratingNote, setRatingNote] = useState("");
+  // Verified pricelist hints per product_id — used in merge PR→PO dialog
+  const [verifiedHints, setVerifiedHints] = useState({});
+
+  // Fetch verified pricelist for each product that appears in selected PRs
+  useEffect(() => {
+    const productIds = [...new Set(selectedIds.flatMap(id => (prs.find(p=>p.id===id)?.items||[]).map(i=>i.product_id).filter(Boolean)))];
+    productIds.forEach(pid => {
+      if (verifiedHints[pid] !== undefined) return;
+      api.get(`/pricelists/cheapest?product_id=${pid}&only_verified=true`)
+        .then(r => setVerifiedHints(prev => ({...prev, [pid]: r.data})))
+        .catch(() => setVerifiedHints(prev => ({...prev, [pid]: null})));
+    });
+  }, [selectedIds, prs]);
 
   const bulkImport = async (file) => {
     setBulkUploading(true); setBulkResult(null);
@@ -246,19 +259,50 @@ export default function PurchaseOrders() {
               <div className="bg-slate-50 border border-slate-200 rounded p-3" data-testid="po-suggest">
                 <div className="label-tiny mb-2">💡 Rekomendasi Vendor (skor tertinggi)</div>
                 <div className="space-y-1">
-                  {suggestions.map((s,i)=>(
+                  {suggestions.map((s,i)=>{
+                    // Check if this vendor has a verified pricelist for any of the products in selected PRs
+                    const products = selectedIds.flatMap(id => (prs.find(p=>p.id===id)?.items||[]));
+                    const verifiedMatch = products.map(it => verifiedHints[it.product_id]?.cheapest).filter(v => v && v.vendor_id === s.vendor_id);
+                    const verifiedPrice = verifiedMatch[0]?.price;
+                    return (
                     <button key={s.vendor_id} onClick={()=>setForm({...form, vendor_id: s.vendor_id})} className={`w-full text-left flex items-center gap-3 p-2 rounded border ${form.vendor_id===s.vendor_id?"border-slate-900 bg-white":"border-slate-200 bg-white hover:border-slate-400"}`} data-testid={`po-suggest-${i}`}>
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${i===0?"bg-emerald-500 text-white":"bg-slate-200 text-slate-700"}`}>{s.score}</div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold truncate">{s.company_name}</div>
+                        <div className="text-sm font-semibold truncate flex items-center gap-2">
+                          {s.company_name}
+                          {verifiedPrice && <span className="inline-flex items-center gap-0.5 text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700" data-testid={`po-suggest-verified-${i}`}>✓ Verified Rp {(verifiedPrice||0).toLocaleString("id-ID")}</span>}
+                        </div>
                         <div className="text-[10px] text-slate-500">{s.reasons.join(" · ")}</div>
                       </div>
                       {i===0 && <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">Top</span>}
                     </button>
-                  ))}
+                  );})}
                 </div>
               </div>
             )}
+            {/* Verified pricelist hints — show one chip per unique product with verified price */}
+            {selectedIds.length > 0 && (() => {
+              const uniqueProducts = [...new Map(selectedIds.flatMap(id => (prs.find(p=>p.id===id)?.items||[])).map(it => [it.product_id, it])).values()];
+              const withVerified = uniqueProducts.filter(it => verifiedHints[it.product_id]?.cheapest);
+              if (withVerified.length === 0) return null;
+              return (
+                <div className="bg-emerald-50 border border-emerald-200 rounded p-3" data-testid="po-verified-hints">
+                  <div className="label-tiny mb-2 text-emerald-800">✓ Harga Verified untuk Produk PR ini</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {withVerified.map((it, i) => {
+                      const c = verifiedHints[it.product_id].cheapest;
+                      return (
+                        <button key={i} type="button" onClick={()=>setForm(prev => ({...prev, vendor_id: c.vendor_id}))} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100" data-testid={`po-verified-chip-${i}`} title="Klik untuk pilih vendor ini">
+                          <span className="font-bold">✓ {it.product_name}</span>
+                          <span className="font-mono font-semibold">Rp {(c.price||0).toLocaleString("id-ID")}</span>
+                          <span className="text-emerald-700">· {c.vendor_name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
             <div>
               <Label className="label-tiny">Pajak (bisa lebih dari satu — sales menambah, withholding mengurangi)</Label>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-1 max-h-32 overflow-y-auto border border-slate-200 rounded p-2 text-xs mt-1" data-testid="po-tax-list">

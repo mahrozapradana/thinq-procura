@@ -492,6 +492,21 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - P2: Vendor pricelist bulk export back to CSV for round-trip editing
 - P3: Radix a11y polish, chart mobile responsiveness
 
+## Iteration 29 – 2026-02-18 (Vendor Shipment Create, Invoice Edit+Diff, Removable Chips, PO Verified Hint)
+### Added
+- **Vendor Shipment Create**: New `POST /api/vendor-portal/shipments` — vendor creates shipment referencing PO, picks per-item qty_shipped, adds shipping_pricelist rows (Ongkir/Handling with qty+unit_price), tracking, carrier, dates, attachments. `GET /api/vendor-portal/shipments/records` returns history. Recomputes PO shipping_status (`in_transit` when fully shipped, `partial` otherwise). UI: full dialog in Vendor Portal → Pengiriman with checkable line items, dynamic shipping pricelist rows, live total.
+- **Invoice Edit With Diff**: New `PUT /api/invoices/{iid}` — finance/admin edits `due_date/amount/notes` (rejects if paid/cancelled). Pushes `edited` audit entry containing per-field `diff:[{field,old,new}]`. Fully surfaced in `<InvoiceDetailSheet>` audit trail with blue "edited" badge.
+- **Removable Filter Chips (Tenders)**: When search/status/group filters are active, small pill chips appear (`tender-chip-search/status/group`) — click X to clear individual, or "Clear all" (`tender-chip-clear`) to reset all.
+- **PO Builder Verified Hint**: Merge PR→PO dialog now shows (a) emerald "✓ Verified Rp X" badge next to matching vendors in suggestion cards (`po-suggest-verified-{i}`) + (b) a dedicated "✓ Harga Verified untuk Produk PR ini" panel with per-product chips (`po-verified-chip-{i}`) — clicking chip auto-selects that vendor.
+- **Vendor Audit View** (regression polish): Vendor invoice detail (source='vendor') already returns full invoice including audit_trail — timeline visible to vendors so they see paid/cancelled/edited history without asking finance.
+### Verified via curl
+- Shipment create OK (SHP-...): items snapshotted, shipping_cost captured, records list grows. Invoice PUT edits due_date+notes, returns diffs.
+### Backlog / Next
+- P1: Admin shipping receipt confirmation flow (BAST auto-linked)
+- P2: PO Builder verified chip should also auto-fill per-line unit price (currently only picks vendor)
+- P2: Attach shipment photo evidence to invoice submission
+- P3: Real-time notification when vendor creates shipment
+
 ## Iteration 28 – 2026-02-18 (PR Verified Hint, Vendor Badge, Overdue Cron, Invoice Audit, Tender Filter/Search/Group)
 ### Added
 - **PR Auto-Fill Verified Price**: On each PR item row, fetching `/api/pricelists/cheapest?product_id=X&only_verified=true` shows a green chip "✓ Verified <currency> <price> · <vendor>" (`pr-verified-hint-{i}`). Click → auto-fills the price input + sets `preferred_vendor_id`.

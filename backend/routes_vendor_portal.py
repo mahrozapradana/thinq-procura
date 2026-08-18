@@ -880,6 +880,49 @@ async def list_all_invoices(user=Depends(get_current_active_user)):
     return await db.invoices.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
 
 
+class InvoiceEditIn(BaseModel):
+    due_date: Optional[str] = None
+    amount: Optional[float] = None
+    notes: Optional[str] = None
+
+
+@router.put("/invoices/{iid}")
+async def edit_invoice(iid: str, payload: InvoiceEditIn, user=Depends(get_current_active_user)):
+    """Finance/admin edits due_date / amount / notes before payment. Records diff audit entry."""
+    if user["role"] not in ("admin", "finance"):
+        raise HTTPException(403, "Not allowed")
+    db = get_db()
+    inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invoice tidak ditemukan")
+    if inv.get("status") == "paid":
+        raise HTTPException(400, "Invoice sudah paid — tidak bisa diedit")
+    if inv.get("status") == "cancelled":
+        raise HTTPException(400, "Invoice sudah dibatalkan")
+    changes: dict = {}
+    diffs: list[dict] = []
+    for field in ("due_date", "amount", "notes"):
+        new_val = getattr(payload, field)
+        if new_val is None:
+            continue
+        old_val = inv.get(field)
+        if new_val != old_val:
+            changes[field] = new_val
+            diffs.append({"field": field, "old": old_val, "new": new_val})
+    if not diffs:
+        return {"ok": True, "no_change": True}
+    entry = {
+        "action": "edited",
+        "by": user["id"],
+        "by_name": user.get("name"),
+        "at": now_iso(),
+        "details": " · ".join(f"{d['field']}: {d['old']} → {d['new']}" for d in diffs),
+        "diff": diffs,
+    }
+    await db.invoices.update_one({"id": iid}, {"$set": changes, "$push": {"audit_trail": entry}})
+    return {"ok": True, "diffs": diffs}
+
+
 @router.post("/invoices/{iid}/pay")
 async def pay_invoice(iid: str, user=Depends(get_current_active_user)):
     if user["role"] not in ("admin", "finance"):

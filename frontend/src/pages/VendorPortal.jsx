@@ -682,26 +682,149 @@ export function VendorRFQs() {
 
 export function VendorShipments() {
   const [rows, setRows] = useState([]);
-  useEffect(()=>{ api.get("/vendor-portal/shipments").then(r=>setRows(r.data)); },[]);
+  const [records, setRecords] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ items: [], shipping_pricelist: [{name:"Ongkir", qty:1, unit_price:0}], attachments: [] });
+  const [saving, setSaving] = useState(false);
+  const load = () => {
+    api.get("/vendor-portal/shipments").then(r=>setRows(r.data));
+    api.get("/vendor-portal/shipments/records").then(r=>setRecords(r.data));
+  };
+  useEffect(()=>{ load(); },[]);
+  const openFor = async (po) => {
+    const r = await api.get(`/vendor-portal/pos/${po.id}`);
+    const full = r.data;
+    setForm({
+      po_id: po.id,
+      po_number: po.po_number,
+      po_items: full.items || [],
+      items: (full.items||[]).map((it, i) => ({ po_item_index: i, product_name: it.product_name, qty_ordered: it.qty, qty_shipped: it.qty, active: true })),
+      shipping_pricelist: [{name:"Ongkir", qty:1, unit_price:0}],
+      attachments: [],
+      currency: full.currency || "IDR",
+    });
+    setOpen(true);
+  };
+  const submit = async () => {
+    setSaving(true);
+    try {
+      await api.post("/vendor-portal/shipments", {
+        po_id: form.po_id,
+        tracking_number: form.tracking_number,
+        carrier: form.carrier,
+        shipped_date: form.shipped_date,
+        expected_arrival: form.expected_arrival,
+        items: form.items.filter(i=>i.active).map(i=>({ po_item_index: i.po_item_index, qty_shipped: parseFloat(i.qty_shipped||0) })),
+        shipping_cost: parseFloat(form.shipping_cost||0),
+        shipping_pricelist: (form.shipping_pricelist||[]).filter(p=>p.name).map(p=>({name:p.name, qty:parseFloat(p.qty||1), unit_price:parseFloat(p.unit_price||0)})),
+        currency: form.currency || "IDR",
+        notes: form.notes,
+        attachments: form.attachments,
+      });
+      toast.success("Data pengiriman tersimpan");
+      setOpen(false); setForm({items:[], shipping_pricelist:[], attachments:[]}); load();
+    } catch(e){ toast.error(e.response?.data?.detail || "Gagal"); }
+    finally { setSaving(false); }
+  };
+  const plTotal = (form.shipping_pricelist||[]).reduce((s,p)=>s+parseFloat(p.qty||0)*parseFloat(p.unit_price||0),0);
   return (
     <div className="space-y-4" data-testid="vendor-shipments">
-      <h1 className="font-heading text-3xl font-bold tracking-tight">Pengiriman Belum Selesai</h1>
-      <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
-        <table className="data-table">
-          <thead><tr><th>No PO</th><th>Type</th><th>Delivery Date</th><th>Shipping</th></tr></thead>
-          <tbody>
-            {rows.length===0 && <tr><td colSpan={4} className="text-center py-6 text-slate-400">Semua sudah dikirim</td></tr>}
-            {rows.map(p=>(
-              <tr key={p.id} data-testid={`vsh-row-${p.id}`}>
-                <td className="font-mono text-xs">{p.po_number}</td>
-                <td>{p.po_type}</td>
-                <td className="text-xs">{p.delivery_date||"-"}</td>
-                <td className="text-xs uppercase font-semibold">{p.shipping_status}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="flex justify-between items-end">
+        <h1 className="font-heading text-3xl font-bold tracking-tight">Pengiriman</h1>
       </div>
+      <div>
+        <div className="label-tiny mb-2">PO yang perlu dikirim</div>
+        <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
+          <table className="data-table">
+            <thead><tr><th>No PO</th><th>Type</th><th>Delivery Date</th><th>Shipping</th><th></th></tr></thead>
+            <tbody>
+              {rows.length===0 && <tr><td colSpan={5} className="text-center py-6 text-slate-400">Semua sudah dikirim</td></tr>}
+              {rows.map(p=>(
+                <tr key={p.id} data-testid={`vsh-row-${p.id}`}>
+                  <td className="font-mono text-xs">{p.po_number}</td>
+                  <td>{p.po_type}</td>
+                  <td className="text-xs">{p.delivery_date||"-"}</td>
+                  <td className="text-xs uppercase font-semibold">{p.shipping_status}</td>
+                  <td className="text-right"><Button size="sm" onClick={()=>openFor(p)} data-testid={`vsh-create-${p.id}`}>Buat Pengiriman</Button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <div className="label-tiny mb-2">Riwayat Pengiriman ({records.length})</div>
+        <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
+          <table className="data-table">
+            <thead><tr><th>No Shipment</th><th>PO</th><th>Carrier</th><th>Tracking</th><th>Shipped</th><th>ETA</th><th>Cost</th><th>Status</th></tr></thead>
+            <tbody>
+              {records.length===0 && <tr><td colSpan={8} className="text-center py-6 text-slate-400">Belum ada pengiriman</td></tr>}
+              {records.map(s=>(
+                <tr key={s.id} data-testid={`vsh-rec-${s.id}`}>
+                  <td className="font-mono text-xs">{s.shipment_number}</td>
+                  <td className="font-mono text-xs">{s.po_number}</td>
+                  <td className="text-xs">{s.carrier||"-"}</td>
+                  <td className="font-mono text-xs">{s.tracking_number||"-"}</td>
+                  <td className="text-xs">{s.shipped_date||"-"}</td>
+                  <td className="text-xs">{s.expected_arrival||"-"}</td>
+                  <td className="font-mono text-xs">{s.currency} {(s.shipping_cost||0).toLocaleString("id-ID")}</td>
+                  <td><span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-blue-100 text-blue-700">{s.status}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Buat Pengiriman — {form.po_number}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="label-tiny">Carrier / Ekspedisi</Label><Input value={form.carrier||""} onChange={e=>setForm({...form, carrier:e.target.value})} data-testid="vsh-carrier" placeholder="JNE / DHL / Sicepat..."/></div>
+              <div><Label className="label-tiny">No Resi / Tracking</Label><Input value={form.tracking_number||""} onChange={e=>setForm({...form, tracking_number:e.target.value})} data-testid="vsh-tracking"/></div>
+              <div><Label className="label-tiny">Tanggal Kirim</Label><Input type="date" value={form.shipped_date||""} onChange={e=>setForm({...form, shipped_date:e.target.value})} data-testid="vsh-shipped"/></div>
+              <div><Label className="label-tiny">Estimasi Tiba</Label><Input type="date" value={form.expected_arrival||""} onChange={e=>setForm({...form, expected_arrival:e.target.value})} data-testid="vsh-eta"/></div>
+            </div>
+            <div>
+              <Label className="label-tiny">Item yang Dikirim</Label>
+              <div className="border border-slate-200 rounded overflow-x-auto mt-1">
+                <table className="data-table">
+                  <thead><tr><th></th><th>Produk</th><th className="text-right">Qty PO</th><th className="text-right">Qty Kirim</th></tr></thead>
+                  <tbody>
+                    {(form.items||[]).map((it, i)=>(
+                      <tr key={i} data-testid={`vsh-item-${i}`}>
+                        <td><input type="checkbox" checked={it.active} onChange={e=>{const items=[...form.items];items[i]={...items[i],active:e.target.checked};setForm({...form,items});}}/></td>
+                        <td className="text-xs">{it.product_name}</td>
+                        <td className="text-right text-slate-500">{it.qty_ordered}</td>
+                        <td className="text-right"><Input type="number" min="0" step="0.01" value={it.qty_shipped} disabled={!it.active} onChange={e=>{const items=[...form.items];items[i]={...items[i],qty_shipped:e.target.value};setForm({...form,items});}} className="h-8 text-xs w-24 font-mono ml-auto" data-testid={`vsh-qty-${i}`}/></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <Label className="label-tiny">Pricelist Ongkir / Handling</Label>
+                <Button size="sm" variant="outline" onClick={()=>setForm({...form, shipping_pricelist:[...(form.shipping_pricelist||[]), {name:"",qty:1,unit_price:0}]})} data-testid="vsh-pl-add"><Plus size={12}/> Baris</Button>
+              </div>
+              <div className="border border-slate-200 rounded p-2 space-y-1">
+                {(form.shipping_pricelist||[]).map((p,i)=>(
+                  <div key={i} className="grid grid-cols-12 gap-2" data-testid={`vsh-pl-${i}`}>
+                    <Input className="col-span-5 h-8 text-xs" placeholder="Deskripsi (Ongkir, Handling...)" value={p.name} onChange={e=>{const pl=[...form.shipping_pricelist];pl[i]={...pl[i],name:e.target.value};setForm({...form, shipping_pricelist:pl});}}/>
+                    <Input className="col-span-2 h-8 text-xs" type="number" placeholder="Qty" value={p.qty} onChange={e=>{const pl=[...form.shipping_pricelist];pl[i]={...pl[i],qty:e.target.value};setForm({...form, shipping_pricelist:pl});}}/>
+                    <Input className="col-span-4 h-8 text-xs font-mono" type="number" placeholder="Harga/Unit" value={p.unit_price} onChange={e=>{const pl=[...form.shipping_pricelist];pl[i]={...pl[i],unit_price:e.target.value};setForm({...form, shipping_pricelist:pl});}}/>
+                    <button className="col-span-1 text-red-500" onClick={()=>setForm({...form, shipping_pricelist:form.shipping_pricelist.filter((_,idx)=>idx!==i)})}><X size={14}/></button>
+                  </div>
+                ))}
+                <div className="flex justify-end pt-1 text-sm font-semibold border-t border-slate-100">Total Ongkir: <span className="ml-2 font-mono" data-testid="vsh-pl-total">{fmtIDR(plTotal)}</span></div>
+              </div>
+            </div>
+            <div><Label className="label-tiny">Catatan</Label><Textarea value={form.notes||""} onChange={e=>setForm({...form, notes:e.target.value})} data-testid="vsh-notes"/></div>
+          </div>
+          <DialogFooter><Button onClick={submit} disabled={saving} data-testid="vsh-save">Kirim Pengiriman</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

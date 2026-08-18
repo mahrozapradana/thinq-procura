@@ -226,6 +226,30 @@ export default function Tenders() {
         ]}/>
         <div className="text-xs text-slate-500 ml-auto">{total} tender</div>
       </div>
+      {/* Active filter chips */}
+      {(search || statusFilter !== "all" || groupBy !== "none") && (
+        <div className="flex flex-wrap items-center gap-1.5" data-testid="tender-active-chips">
+          <span className="text-[10px] uppercase font-semibold text-slate-500">Filter aktif:</span>
+          {search && (
+            <button onClick={()=>setSearch("")} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200" data-testid="tender-chip-search">
+              Cari: "{search}" <X size={10}/>
+            </button>
+          )}
+          {statusFilter !== "all" && (
+            <button onClick={()=>setStatusFilter("all")} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 hover:bg-emerald-200" data-testid="tender-chip-status">
+              Status: {statusFilter} <X size={10}/>
+            </button>
+          )}
+          {groupBy !== "none" && (
+            <button onClick={()=>setGroupBy("none")} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 hover:bg-purple-200" data-testid="tender-chip-group">
+              Group: {groupBy} <X size={10}/>
+            </button>
+          )}
+          <button onClick={()=>{setSearch(""); setStatusFilter("all"); setGroupBy("none");}} className="text-[11px] px-2 py-0.5 rounded-full border border-slate-300 text-slate-600 hover:bg-slate-100" data-testid="tender-chip-clear">
+            Clear all
+          </button>
+        </div>
+      )}
       <div className="bg-white border border-slate-200 rounded-md overflow-x-auto">
         <table className="data-table">
           <thead><tr><th>No Tender</th><th>Judul</th><th>Deadline</th><th>Undangan</th><th>Bids</th><th>Status</th><th></th></tr></thead>
