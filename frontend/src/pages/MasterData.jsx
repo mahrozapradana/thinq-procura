@@ -104,6 +104,8 @@ export default function MasterData() {
           <TabsTrigger value="categories" data-testid="tab-categories">Categories</TabsTrigger>
           <TabsTrigger value="departments" data-testid="tab-departments">Departments</TabsTrigger>
           <TabsTrigger value="hs" data-testid="tab-hs">HS Codes</TabsTrigger>
+          <TabsTrigger value="warehouses" data-testid="tab-warehouses">Warehouses</TabsTrigger>
+          <TabsTrigger value="locations" data-testid="tab-locations">Locations</TabsTrigger>
         </TabsList>
         <TabsContent value="products" className="mt-4">
           <DataSection
@@ -111,21 +113,27 @@ export default function MasterData() {
             title="Products"
             endpoint="/products"
             columns={[
-              {key:"code", label:"Code"},
+              {key:"code", label:"Code / SKU"},
               {key:"name", label:"Name"},
+              {key:"sku", label:"Alt SKU"},
               {key:"unit", label:"Unit"},
+              {key:"is_lot_tracked", label:"Lot", render:r=>r.is_lot_tracked?"✓":"-"},
+              {key:"variants", label:"Variants", render:r=>(r.variants||[]).length},
               {key:"default_price", label:"Price", render:r=>fmtIDR(r.default_price)},
               {key:"category_id", label:"Kategori", render:r=>cats.find(c=>c.id===r.category_id)?.name || "-"},
               {key:"hs_code_id", label:"HS Code", render:r=>hs.find(h=>h.id===r.hs_code_id)?.code || "-"},
             ]}
             fields={[
-              {key:"code", label:"Code"},
+              {key:"code", label:"Code (SKU utama)"},
+              {key:"sku", label:"Alt SKU (opsional)"},
               {key:"name", label:"Name"},
               {key:"unit", label:"Unit (PCS/KG/...)"},
               {key:"default_price", label:"Harga Default", type:"number"},
+              {key:"is_lot_tracked", label:"Lot Tracked (1/0)", type:"number"},
               {key:"category_id", label:"Kategori", type:"select", options: cats.map(c=>({value:c.id,label:c.name}))},
               {key:"hs_code_id", label:"HS Code", type:"select", options: hs.map(h=>({value:h.id,label:`${h.code} — ${h.description}`}))},
               {key:"description", label:"Deskripsi"},
+              {key:"variants", label:"Variants JSON (opsional, format: [{\"sku\":\"...\",\"name\":\"...\",\"attributes\":{...},\"price\":0}])"},
             ]}
           />
         </TabsContent>
@@ -143,6 +151,16 @@ export default function MasterData() {
           <DataSection testid="hs-section" title="HS Codes" endpoint="/hs-codes"
             columns={[{key:"code",label:"Code"},{key:"description",label:"Deskripsi"},{key:"duty_rate",label:"Duty %"}]}
             fields={[{key:"code",label:"Code"},{key:"description",label:"Deskripsi"},{key:"duty_rate",label:"Duty Rate (%)",type:"number"}]}/>
+        </TabsContent>
+        <TabsContent value="warehouses" className="mt-4">
+          <DataSection testid="wh-section" title="Warehouses" endpoint="/warehouses"
+            columns={[{key:"code",label:"Code"},{key:"name",label:"Name"},{key:"is_bonded",label:"Bonded",render:r=>r.is_bonded?<span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold uppercase">Bonded</span>:"-"},{key:"address",label:"Address"}]}
+            fields={[{key:"code",label:"Code"},{key:"name",label:"Name"},{key:"is_bonded",label:"Bonded (1/0)",type:"number"},{key:"address",label:"Address"}]}/>
+        </TabsContent>
+        <TabsContent value="locations" className="mt-4">
+          <DataSection testid="loc-section" title="Locations" endpoint="/locations"
+            columns={[{key:"code",label:"Code"},{key:"name",label:"Name"},{key:"warehouse_id",label:"Warehouse"},{key:"is_bonded_zone",label:"Bonded Zone",render:r=>r.is_bonded_zone?<span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold uppercase">KB</span>:"-"}]}
+            fields={[{key:"code",label:"Code"},{key:"name",label:"Name"},{key:"warehouse_id",label:"Warehouse ID"},{key:"is_bonded_zone",label:"Bonded Zone (1/0)",type:"number"}]}/>
         </TabsContent>
       </Tabs>
     </div>

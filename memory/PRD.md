@@ -135,3 +135,10 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - **Delegation UI**: Settings > Delegation tab. User picks delegate + until date; PUT /api/users/{id}/delegation. Bug fix: compile error 'total' duplicate declaration in PurchaseRequests.jsx (renamed to formTotal).
 ### Verified
 - PO PDF 200 (~2.5KB) · Chat send + list OK · SMTP live · Supabase LS upload OK · Cron endpoint auth OK.
+
+## Iteration 9 – 2026-02-14
+- **Master Warehouse & Location UI**: 2 tab baru di Master Data (Warehouse dengan bonded flag, Location dengan bonded_zone flag).
+- **Product SKU + Variants + Lot Track**: field code/SKU/Alt SKU/variants JSON/is_lot_tracked di form Products.
+- **Multi-Lot Goods Receipt**: input multi-lot per item saat penerimaan barang (lot number + qty), pilih Warehouse+Location, dan link ke Dokumen BC bila PO Bonded.
+- **BC Print PDF**: `GET /api/customs-docs/{id}/print.pdf` — header + item table + document + petikemas + tanda tangan. Tombol "Print PDF" di editor BC.
+- **BC → Odoo Landed Cost**: `POST /api/customs-docs/{id}/sync-odoo` menciptakan stock.landed.cost di Odoo dengan cost line Freight/Insurance/BMT. Fallback message ramah jika module Purchase Landed Costs belum terinstall di Odoo.

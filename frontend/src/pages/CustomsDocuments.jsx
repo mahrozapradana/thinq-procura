@@ -171,7 +171,17 @@ export default function CustomsDocuments() {
                     ]} testid="ct-pk"/>
                 </TabsContent>
               </Tabs>
-              <DialogFooter>
+                <DialogFooter>
+                <Button variant="outline" onClick={async ()=>{
+                  const t = localStorage.getItem("access_token");
+                  const r = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/customs-docs/${detail.id}/print.pdf`, { credentials:"include", headers: t?{Authorization:`Bearer ${t}`}:{}});
+                  const b = await r.blob(); const u=URL.createObjectURL(b); const a=document.createElement("a"); a.href=u; a.download=`${detail.bc_type}_${detail.doc_number}.pdf`; a.click(); URL.revokeObjectURL(u);
+                }} data-testid="customs-print">Print PDF</Button>
+                <Button variant="outline" onClick={async ()=>{
+                  try { const r = await api.post(`/customs-docs/${detail.id}/sync-odoo`);
+                    r.data.mocked ? toast.info(r.data.message) : toast.success(`Odoo landed cost dibuat (ID ${r.data.landed_cost_id})`);
+                  } catch(e){ toast.error(e.response?.data?.detail); }
+                }} data-testid="customs-odoo-sync">Sync ke Odoo</Button>
                 <Button variant="outline" onClick={save} data-testid="customs-save">Simpan</Button>
                 <Button onClick={submit} data-testid="customs-submit"><Send size={14}/> Submit</Button>
               </DialogFooter>

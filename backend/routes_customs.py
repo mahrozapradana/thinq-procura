@@ -1,13 +1,22 @@
 """Customs (BC) documents, warehouses & locations for bonded/non-bonded receiving."""
 from __future__ import annotations
 
+import io
+from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import cm
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 
 from auth_utils import get_current_active_user
 from db_models import get_db, new_id, now_iso, clean, gen_number
+from odoo_client import get_odoo_client
 
 router = APIRouter(prefix="/api")
 
@@ -241,3 +250,92 @@ async def customs_from_po(po_id: str, bc_type_key: str, user=Depends(get_current
     }
     await db.customs_docs.insert_one(doc)
     return clean(doc)
+
+
+
+# ---------- BC Print PDF ----------
+@router.get("/customs-docs/{cid}/print.pdf")
+async def customs_pdf(cid: str, user=Depends(get_current_active_user)):
+    db = get_db()
+    d = await db.customs_docs.find_one({"id": cid}, {"_id": 0})
+    if not d:
+        raise HTTPException(404, "Not found")
+    buf = io.BytesIO()
+    pdf = SimpleDocTemplate(buf, pagesize=A4, leftMargin=1*cm, rightMargin=1*cm, topMargin=1*cm, bottomMargin=1*cm)
+    styles = getSampleStyleSheet()
+    title = ParagraphStyle("t", parent=styles["Title"], fontSize=14, textColor=colors.HexColor("#0F172A"))
+    lbl = ParagraphStyle("l", parent=styles["Normal"], textColor=colors.HexColor("#94A3B8"), fontSize=7)
+    val = ParagraphStyle("v", parent=styles["Normal"], fontSize=9)
+    company = await db.company_settings.find_one({"id": "singleton-company"}, {"_id": 0}) or {}
+    story = [Paragraph(f"<b>{company.get('name','')}</b>", val), Paragraph(f"{d.get('bc_type')} — {d.get('doc_number')}", title), Spacer(1, 6)]
+    header_rows = [
+        [Paragraph("Register No", lbl), Paragraph(str(d.get("register_no") or "-"), val), Paragraph("Register Date", lbl), Paragraph(str(d.get("register_date") or "-"), val)],
+        [Paragraph("CAR", lbl), Paragraph(str(d.get("car") or "-"), val), Paragraph("BL No", lbl), Paragraph(str(d.get("bl_no") or "-"), val)],
+        [Paragraph("Kantor Pengawas", lbl), Paragraph(str(d.get("kantor_pengawas") or "-"), val), Paragraph("Kantor Bongkar", lbl), Paragraph(str(d.get("kantor_bongkar") or "-"), val)],
+        [Paragraph("Supplier", lbl), Paragraph(str(d.get("supplier") or "-"), val), Paragraph("Shipper", lbl), Paragraph(str(d.get("shipper") or "-"), val)],
+        [Paragraph("Tujuan TPB", lbl), Paragraph(str(d.get("tujuan_tpb") or "-"), val), Paragraph("Currency/Rate", lbl), Paragraph(f"{d.get('currency','')} / {d.get('rate',0)}", val)],
+        [Paragraph("CIF Value", lbl), Paragraph(f"{d.get('currency','')} {float(d.get('value') or 0):,.2f}", val), Paragraph("Bruto", lbl), Paragraph(str(d.get("bruto") or "-"), val)],
+    ]
+    ht = Table(header_rows, colWidths=[3*cm, 6*cm, 3*cm, 6.5*cm])
+    ht.setStyle(TableStyle([("BOTTOMPADDING", (0,0),(-1,-1), 3), ("VALIGN", (0,0),(-1,-1), "TOP")]))
+    story.append(ht); story.append(Spacer(1, 8))
+    story.append(Paragraph("<b>Detail Barang</b>", val))
+    rows = [["Seri", "Kode", "HS Code", "Qty", "Unit", "Unit Price", "Amount"]]
+    for it in d.get("items", []):
+        rows.append([str(it.get("seri") or ""), str(it.get("kode_barang") or ""), str(it.get("hs_code") or ""), str(it.get("qty") or ""), str(it.get("unit") or ""), str(it.get("unit_price") or ""), str(it.get("amount") or "")])
+    tbl = Table(rows, colWidths=[1*cm, 3.5*cm, 2.5*cm, 1.5*cm, 1.5*cm, 3*cm, 3*cm], repeatRows=1)
+    tbl.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#F1F5F9")),("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),("FONTSIZE",(0,0),(-1,-1),8),("GRID",(0,0),(-1,-1),0.3,colors.HexColor("#E2E8F0"))]))
+    story.append(tbl); story.append(Spacer(1, 8))
+    if d.get("documents"):
+        story.append(Paragraph("<b>Dokumen Pendukung</b>", val))
+        drows = [["Tipe", "Uraian Dokumen", "Nomor", "Tanggal"]]
+        for x in d["documents"]:
+            drows.append([str(x.get("tipe_dok","")), str(x.get("uraian_dokumen","")), str(x.get("nomor_dokumen","")), str(x.get("tanggal_dokumen",""))])
+        dtbl = Table(drows, colWidths=[2*cm, 7*cm, 4*cm, 3.5*cm], repeatRows=1)
+        dtbl.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#F1F5F9")),("FONTSIZE",(0,0),(-1,-1),8),("GRID",(0,0),(-1,-1),0.3,colors.HexColor("#E2E8F0"))]))
+        story.append(dtbl); story.append(Spacer(1, 8))
+    if d.get("petikemas"):
+        story.append(Paragraph("<b>Petikemas</b>", val))
+        prows = [["Seri", "Jenis", "Tipe", "Ukuran", "Nomor"]]
+        for x in d["petikemas"]:
+            prows.append([str(x.get("seri","")), str(x.get("jenis_kontainer","")), str(x.get("tipe_kontainer","")), str(x.get("ukuran_kontainer","")), str(x.get("nomor_kontainer",""))])
+        ptbl = Table(prows, colWidths=[1*cm, 3*cm, 3*cm, 3*cm, 6.5*cm], repeatRows=1)
+        ptbl.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#F1F5F9")),("FONTSIZE",(0,0),(-1,-1),8),("GRID",(0,0),(-1,-1),0.3,colors.HexColor("#E2E8F0"))]))
+        story.append(ptbl)
+    story.append(Spacer(1, 20))
+    story.append(Paragraph(f"{d.get('nama_penanda_tangan') or ''} — {d.get('jabatan_penanda_tangan') or ''}", val))
+    pdf.build(story)
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{d.get("bc_type","BC").replace(" ","")}_{d.get("doc_number")}.pdf"'})
+
+
+# ---------- BC Sync to Odoo (Landed Cost) ----------
+@router.post("/customs-docs/{cid}/sync-odoo")
+async def customs_sync_odoo(cid: str, user=Depends(get_current_active_user)):
+    db = get_db()
+    d = await db.customs_docs.find_one({"id": cid}, {"_id": 0})
+    if not d:
+        raise HTTPException(404, "Not found")
+    client = await get_odoo_client()
+    if not client:
+        return {"ok": True, "mocked": True, "message": "Odoo belum enabled — sync di-mock."}
+    try:
+        freight = float(d.get("freight") or 0)
+        insurance = float(d.get("insurance_value") or 0)
+        bmt_total = sum(float(it.get("bmt") or 0) for it in d.get("items", []))
+        cost_lines = []
+        if freight > 0: cost_lines.append([0, 0, {"name": "Freight", "price_unit": freight, "split_method": "by_current_cost_price"}])
+        if insurance > 0: cost_lines.append([0, 0, {"name": "Insurance", "price_unit": insurance, "split_method": "by_current_cost_price"}])
+        if bmt_total > 0: cost_lines.append([0, 0, {"name": "BMT / Bea Masuk", "price_unit": bmt_total, "split_method": "by_current_cost_price"}])
+        landed_id = await client.execute("stock.landed.cost", "create", [{
+            "date": (d.get("register_date") or datetime.utcnow().strftime("%Y-%m-%d")),
+            "cost_lines": cost_lines,
+            "account_journal_id": False,
+        }])
+        await db.customs_docs.update_one({"id": cid}, {"$set": {"odoo_landed_cost_id": landed_id, "odoo_synced_at": now_iso()}})
+        return {"ok": True, "landed_cost_id": landed_id, "cost_lines": len(cost_lines)}
+    except Exception as e:
+        msg = str(e)[:300]
+        if "doesn't exist" in msg or "does not exist" in msg or "unknown" in msg.lower():
+            return {"ok": True, "warning": True, "message": f"Modul Odoo untuk landed cost tidak terinstall. Install app 'Purchase Landed Costs' di Odoo Anda. Detail: {msg[:150]}"}
+        raise HTTPException(502, f"Odoo sync failed: {msg}")
