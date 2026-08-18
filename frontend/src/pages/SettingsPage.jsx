@@ -56,6 +56,7 @@ export default function SettingsPage() {
           <TabsTrigger value="company" data-testid="tab-company">Company</TabsTrigger>
           <TabsTrigger value="odoo" data-testid="tab-odoo">Odoo XML-RPC</TabsTrigger>
           <TabsTrigger value="notif" data-testid="tab-notif">Email SMTP</TabsTrigger>
+          <TabsTrigger value="prefs" data-testid="tab-prefs">Preferensi Notif</TabsTrigger>
           <TabsTrigger value="delegation" data-testid="tab-delegation">Delegation</TabsTrigger>
         </TabsList>
         <TabsContent value="company" className="mt-4">
@@ -82,7 +83,15 @@ export default function SettingsPage() {
                     </div>
                   ))}
                 </div>
-                <div className="text-[10px] text-slate-500 mt-1">Contoh: USD = 15800. Digunakan untuk PO Bonded USD.</div>
+                <div className="flex items-center justify-between mt-1">
+                  <div className="text-[10px] text-slate-500">
+                    {c.exchange_rates_fetched_at ? `Update: ${new Date(c.exchange_rates_fetched_at).toLocaleString("id-ID")}` : "Contoh: USD = 15800"}
+                  </div>
+                  <button type="button" onClick={async ()=>{
+                    try { const r = await api.post("/settings/fetch-fx-rates"); toast.success(`Kurs terupdate: USD=${r.data.rates.USD}, SGD=${r.data.rates.SGD}, JPY=${r.data.rates.JPY}`); setC({...c, exchange_rates: r.data.rates, exchange_rates_fetched_at: r.data.fetched_at}); }
+                    catch(e){ toast.error(e.response?.data?.detail); }
+                  }} className="text-[10px] px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold" data-testid="cs-fetch-fx">Auto BI</button>
+                </div>
               </div>
             </div>
             <div><Label className="label-tiny">Alamat</Label><Textarea value={c.address||""} onChange={e=>setC({...c,address:e.target.value})} data-testid="cs-address"/></div>
@@ -178,10 +187,46 @@ export default function SettingsPage() {
             </div>
           </div>
         </TabsContent>
+        <TabsContent value="prefs" className="mt-4">
+          <NotifPrefsPanel/>
+        </TabsContent>
         <TabsContent value="delegation" className="mt-4">
           <DelegationPanel/>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function NotifPrefsPanel() {
+  const [p, setP] = useState({ email: true, bell: true });
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    api.get("/users/me/notification-prefs").then(r => { setP(r.data); setLoaded(true); }).catch(() => setLoaded(true));
+  }, []);
+  const save = async () => {
+    try { await api.put("/users/me/notification-prefs", p); toast.success("Preferensi tersimpan"); }
+    catch(e){ toast.error(e.response?.data?.detail); }
+  };
+  if (!loaded) return <div className="text-sm text-slate-500">Memuat...</div>;
+  return (
+    <div className="bg-white border border-slate-200 rounded-md p-6 max-w-xl space-y-4" data-testid="notif-prefs-panel">
+      <div className="p-3 border border-blue-200 bg-blue-50 rounded text-xs text-blue-800">Pilih saluran notifikasi mana yang Anda inginkan. Approver biasanya butuh email (untuk approve dari HP), staff cukup bell.</div>
+      <div className="flex items-center justify-between border border-slate-200 rounded p-3">
+        <div>
+          <div className="text-sm font-semibold">Email</div>
+          <div className="text-xs text-slate-500">Terima notifikasi via email (SMTP)</div>
+        </div>
+        <Switch checked={p.email} onCheckedChange={v => setP({...p, email: v})} data-testid="prefs-email"/>
+      </div>
+      <div className="flex items-center justify-between border border-slate-200 rounded p-3">
+        <div>
+          <div className="text-sm font-semibold">Bell (In-App Real-Time)</div>
+          <div className="text-xs text-slate-500">Push instan via Server-Sent Events ke bell topbar</div>
+        </div>
+        <Switch checked={p.bell} onCheckedChange={v => setP({...p, bell: v})} data-testid="prefs-bell"/>
+      </div>
+      <Button onClick={save} data-testid="prefs-save">Simpan Preferensi</Button>
     </div>
   );
 }

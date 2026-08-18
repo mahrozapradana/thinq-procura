@@ -1,12 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import api from "@/lib/api";
 import { Bell, Check } from "lucide-react";
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
+
+const API_URL = process.env.REACT_APP_BACKEND_URL;
 
 export default function NotificationsBell() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState([]);
   const [unread, setUnread] = useState(0);
+  const esRef = useRef(null);
 
   const load = async () => {
     try {
@@ -15,20 +19,35 @@ export default function NotificationsBell() {
       setUnread(r.data.unread_count || 0);
     } catch {}
   };
+
   useEffect(() => {
     load();
-    const t = setInterval(load, 20000);
-    return () => clearInterval(t);
+    // Setup SSE for real-time push
+    try {
+      const t = localStorage.getItem("access_token");
+      const url = `${API_URL}/api/notifications/stream${t ? `?token=${encodeURIComponent(t)}` : ""}`;
+      const es = new EventSource(url, { withCredentials: true });
+      es.addEventListener("notification", (ev) => {
+        try {
+          const payload = JSON.parse(ev.data);
+          setItems(prev => [payload, ...prev].slice(0, 30));
+          setUnread(u => u + 1);
+          toast.info(payload.title, { description: payload.message });
+        } catch {}
+      });
+      es.onerror = () => { /* silent fallback to polling */ };
+      esRef.current = es;
+    } catch {}
+    // Polling fallback (safety net)
+    const poll = setInterval(load, 30000);
+    return () => {
+      if (esRef.current) esRef.current.close();
+      clearInterval(poll);
+    };
   }, []);
 
-  const markRead = async (id) => {
-    await api.post(`/notifications/${id}/read`);
-    load();
-  };
-  const markAllRead = async () => {
-    await api.post(`/notifications/read-all`);
-    load();
-  };
+  const markRead = async (id) => { await api.post(`/notifications/${id}/read`); load(); };
+  const markAllRead = async () => { await api.post(`/notifications/read-all`); load(); };
 
   return (
     <div className="relative" data-testid="notif-bell-wrap">
@@ -45,7 +64,10 @@ export default function NotificationsBell() {
           <div className="fixed inset-0" onClick={()=>setOpen(false)}/>
           <div className="absolute right-0 top-full mt-1 w-96 bg-white border border-slate-200 rounded-md shadow-lg z-30" data-testid="notif-panel">
             <div className="flex items-center justify-between p-3 border-b border-slate-200">
-              <div className="font-heading font-bold text-sm">Notifikasi</div>
+              <div className="flex items-center gap-2">
+                <div className="font-heading font-bold text-sm">Notifikasi</div>
+                <span className="text-[9px] text-emerald-600 font-semibold uppercase tracking-wider">● Live</span>
+              </div>
               {unread > 0 && <button onClick={markAllRead} className="text-xs text-blue-600 hover:underline" data-testid="notif-mark-all">Tandai semua terbaca</button>}
             </div>
             <div className="max-h-96 overflow-y-auto">

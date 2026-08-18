@@ -6,3 +6,9 @@ crons:
     method: POST
     # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
     enabled: true
+  - name: fetch-fx-rates
+    description: "Daily 06:00 UTC pull FX rates USD/SGD/JPY -> IDR (BI JISDOR proxy)"
+    cron: "0 6 * * *"
+    endpoint: "{{BASE_URL}}/api/cron/fetch-fx-rates"
+    method: GET
+    enabled: true

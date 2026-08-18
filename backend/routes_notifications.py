@@ -1,9 +1,13 @@
-"""In-app bell notifications (polling, no websocket needed)."""
+"""In-app bell notifications (polling + SSE stream)."""
 from __future__ import annotations
 
+import asyncio
+import json
+from collections import defaultdict
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from auth_utils import get_current_active_user
@@ -11,15 +15,27 @@ from db_models import get_db, new_id, now_iso, clean
 
 router = APIRouter(prefix="/api")
 
+# In-process SSE fan-out: per-user asyncio queues (works for single-worker uvicorn)
+_subscribers: dict[str, list[asyncio.Queue]] = defaultdict(list)
+
+
+def _publish(user_id: str, payload: dict):
+    """Push a notification payload to all active SSE streams for a user."""
+    for q in list(_subscribers.get(user_id, [])):
+        try:
+            q.put_nowait(payload)
+        except Exception:
+            pass
+
 
 async def create_notification(user_id: str, ntype: str, title: str, message: str, link: str = "", meta: dict | None = None):
-    """Insert an in-app notification for a user. Safe helper – swallow errors."""
+    """Insert an in-app notification for a user + push via SSE + optionally email."""
     try:
         db = get_db()
         doc = {
             "id": new_id(),
             "user_id": user_id,
-            "type": ntype,  # rfq_reply | po_approved | rating_pending | tax_report | etc
+            "type": ntype,
             "title": title,
             "message": message,
             "link": link,
@@ -28,6 +44,17 @@ async def create_notification(user_id: str, ntype: str, title: str, message: str
             "created_at": now_iso(),
         }
         await db.notifications.insert_one(doc)
+        _publish(user_id, {k: v for k, v in doc.items() if k != "_id"})
+        # Also send email if user has email pref
+        try:
+            user = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "notification_prefs": 1})
+            prefs = (user or {}).get("notification_prefs") or {"email": False, "bell": True}
+            link_html = f'<p><a href="{link}">Buka detail</a></p>' if link else ''
+            if prefs.get("email") and user and user.get("email"):
+                from notifications import send_email
+                await send_email([user["email"]], f"[Procura] {title}", f"<p>{message}</p>{link_html}")
+        except Exception:
+            pass
         return clean(doc)
     except Exception:
         return None
@@ -67,3 +94,52 @@ async def mark_all_read(user=Depends(get_current_active_user)):
     db = get_db()
     r = await db.notifications.update_many({"user_id": user["id"], "is_read": False}, {"$set": {"is_read": True, "read_at": now_iso()}})
     return {"ok": True, "modified": r.modified_count}
+
+
+@router.get("/notifications/stream")
+async def notifications_stream(request: Request, user=Depends(get_current_active_user)):
+    """SSE stream — pushes new notifications instantly to this user."""
+    queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    _subscribers[user["id"]].append(queue)
+
+    async def event_gen():
+        try:
+            # initial ping
+            yield f": connected user={user['id']}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    payload = await asyncio.wait_for(queue.get(), timeout=25.0)
+                    yield f"event: notification\ndata: {json.dumps(payload)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+        finally:
+            try:
+                _subscribers[user["id"]].remove(queue)
+            except ValueError:
+                pass
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
+
+
+class PrefsIn(BaseModel):
+    email: bool = True
+    bell: bool = True
+
+
+@router.get("/users/me/notification-prefs")
+async def get_my_prefs(user=Depends(get_current_active_user)):
+    db = get_db()
+    u = await db.users.find_one({"id": user["id"]}, {"notification_prefs": 1, "_id": 0}) or {}
+    return u.get("notification_prefs") or {"email": True, "bell": True}
+
+
+@router.put("/users/me/notification-prefs")
+async def set_my_prefs(payload: PrefsIn, user=Depends(get_current_active_user)):
+    db = get_db()
+    await db.users.update_one({"id": user["id"]}, {"$set": {"notification_prefs": payload.model_dump()}})
+    return payload.model_dump()

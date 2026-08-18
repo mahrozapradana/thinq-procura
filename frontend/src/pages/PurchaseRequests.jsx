@@ -40,7 +40,8 @@ export default function PurchaseRequests() {
   const [duplicates, setDuplicates] = useState([]);
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState(null);
-  const [form, setForm] = useState({ items: [], procurement_type:"DIRECT", is_bonded: false, attachments: [] });
+  const [form, setForm] = useState({ items: [], procurement_type:"DIRECT", is_bonded: false, attachments: [], preferred_vendor_id: null });
+  const [vendorSuggestions, setVendorSuggestions] = useState([]);
 
   const load = () => api.get(`/prs?page=${page}&page_size=20&q=${encodeURIComponent(q)}`).then(r=>{ setRows(r.data.items); setTotal(r.data.total); setPages(r.data.pages); });
   useEffect(() => {
@@ -48,6 +49,15 @@ export default function PurchaseRequests() {
     api.get("/departments").then(r=>setDepts(r.data));
     api.get("/products").then(r=>setProducts(r.data));
   }, [page, q]);
+
+  // Fetch vendor suggestions when items change
+  useEffect(() => {
+    const productIds = form.items.filter(i=>i.product_id).map(i=>i.product_id);
+    if (productIds.length === 0) { setVendorSuggestions([]); return; }
+    api.get(`/vendor-suggestions?product_ids=${productIds.join(",")}&top=3`)
+      .then(r => setVendorSuggestions(r.data.suggestions || []))
+      .catch(() => setVendorSuggestions([]));
+  }, [form.items.map(i=>i.product_id).join(",")]);
   useEffect(() => {
     if (form.department_id) {
       api.get(`/budgets/check/${form.department_id}`).then(r => setDeptBudgets(r.data));
@@ -156,6 +166,28 @@ export default function PurchaseRequests() {
                 ))}
                 <div className="mt-2 flex justify-end text-sm font-heading font-bold">Total: <span className="ml-2 font-mono">{fmtIDR(formTotal)}</span></div>
               </div>
+
+              {vendorSuggestions.length > 0 && (
+                <div className="border border-slate-200 rounded p-3 bg-slate-50" data-testid="pr-vendor-suggest">
+                  <div className="label-tiny mb-2">💡 Rekomendasi Vendor untuk PR ini (opsional)</div>
+                  <div className="space-y-1">
+                    {vendorSuggestions.map((s,i)=>(
+                      <button type="button" key={s.vendor_id} onClick={()=>setForm({...form, preferred_vendor_id: form.preferred_vendor_id===s.vendor_id ? null : s.vendor_id})}
+                        className={`w-full text-left flex items-center gap-3 p-2 rounded border ${form.preferred_vendor_id===s.vendor_id?"border-slate-900 bg-white ring-1 ring-slate-900":"border-slate-200 bg-white hover:border-slate-400"}`}
+                        data-testid={`pr-suggest-${i}`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${i===0?"bg-emerald-500 text-white":"bg-slate-200 text-slate-700"}`}>{s.score}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold truncate">{s.company_name}</div>
+                          <div className="text-[10px] text-slate-500">{s.reasons.join(" · ") || "Vendor tersedia"}</div>
+                        </div>
+                        {i===0 && <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">Top</span>}
+                        {form.preferred_vendor_id===s.vendor_id && <Check size={14} className="text-emerald-600"/>}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-2 italic">Rekomendasi ini akan diteruskan ke procurement sebagai vendor prefer saat membuat PO.</div>
+                </div>
+              )}
 
               {/* Budget preview */}
               {form.department_id && (

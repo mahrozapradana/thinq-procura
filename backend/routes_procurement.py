@@ -279,6 +279,7 @@ class PRIn(BaseModel):
     is_bonded: bool = False
     notes: Optional[str] = None
     attachments: List[dict] = Field(default_factory=list)
+    preferred_vendor_id: Optional[str] = None  # rekomendasi vendor dari requester
 
 
 @router.get("/prs")
@@ -346,6 +347,7 @@ async def create_pr(payload: PRIn, user=Depends(get_current_active_user)):
         "is_bonded": payload.is_bonded,
         "notes": payload.notes,
         "attachments": payload.attachments,
+        "preferred_vendor_id": payload.preferred_vendor_id,
         "status": "pending_approval" if steps else "approved",
         "approvals": steps,
         "current_level": 1 if steps else 0,

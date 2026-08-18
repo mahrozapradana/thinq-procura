@@ -233,3 +233,39 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - P2: Vendor suggestion untuk PR (bukan hanya PO) supaya requester bisa pilih vendor dari awal
 - P3: Notification preferences per user (email vs bell vs both)
 
+
+## Iteration 15 – 2026-02-18 (FX Auto + SSE Push + PR Vendor Suggest + Notif Prefs)
+### Added
+- **FX Auto (BI JISDOR proxy)**: New `/app/backend/routes_fx.py` menggunakan `open.er-api.com` sebagai proxy interbank rate (BI JISDOR memerlukan SOAP yang rapuh).
+  - `POST /api/settings/fetch-fx-rates` (admin/finance/procurement): fetch USD/SGD/JPY→IDR, simpan ke `company_settings.exchange_rates` + `exchange_rates_fetched_at` + `exchange_rates_source`.
+  - `GET /api/cron/fetch-fx-rates` (no auth) untuk platform cron.
+  - `.emergent/crons.yml`: new entry `fetch-fx-rates` daily 06:00 UTC.
+  - UI: tombol biru "Auto BI" di Settings > Company + timestamp update. Verified: USD=17830.69, SGD=13962.41, JPY=111.92 ✓
+- **SSE Real-Time Push**:
+  - `GET /api/notifications/stream` — Server-Sent Events endpoint dengan in-process fan-out (asyncio.Queue per user_id, disconnect detection, keep-alive 25s).
+  - `create_notification` sekarang publish ke SSE queue segera setelah insert DB.
+  - Frontend: `NotificationsBell.jsx` pakai `EventSource` untuk push instan + toast auto-popup + polling fallback 30s. Badge "● Live" hijau di panel header.
+  - Verified: `curl -sN /api/notifications/stream` returns `: connected user=...` immediately ✓
+- **Vendor Suggest di PR**:
+  - `PRIn.preferred_vendor_id` (optional) — requester tag rekomendasi vendor sejak PR dibuat, ditampilkan ke procurement saat merge → PO.
+  - Frontend: PR create dialog auto-fetch `/vendor-suggestions?product_ids=...` saat item berubah, tampilkan 3 kartu ranked (skor 40/30/30 + reasons), klik untuk toggle pilih. Persisted di doc PR.
+- **Preferensi Notifikasi Per User**:
+  - `notification_prefs: {email, bell}` di user document (default both true).
+  - `GET|PUT /api/users/me/notification-prefs`.
+  - `create_notification` sekarang cek `prefs.email` — hanya kirim email bila user opt-in (bell selalu insert DB agar terlihat).
+  - Frontend: Tab baru "Preferensi Notif" di Settings dengan Switch untuk Email + Bell + tombol Simpan.
+
+### Verified via curl + Playwright
+- FX auto POST returns live rates ✓
+- Notification prefs GET/PUT round-trip ✓
+- SSE stream connects & sends `: connected` frame ✓
+- Settings UI: 5 tabs (Company/Odoo/Email SMTP/Preferensi Notif/Delegation) ✓
+- Company tab: Threshold field + Kurs table + "Auto BI" button + "Update: 18/8/2026, 02.24.56" timestamp ✓
+- Preferensi Notif tab: Email toggle off, Bell toggle on, tombol Simpan ✓
+
+### Backlog / Next
+- P2: Vendor suggest ambil histori PR (bukan hanya PO) supaya vendor baru yang pernah dipertimbangkan tetap muncul
+- P2: Notification preferences per type (RFQ reply vs approval vs rating) supaya lebih granular
+- P3: SSE multi-worker support via Redis pub/sub bila uvicorn dijalankan multi-worker
+- P3: Vendor Portal juga mendapat bell + SSE untuk PO acknowledgement
+
