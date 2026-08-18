@@ -135,7 +135,15 @@ export default function SettingsPage() {
               <div>
                 <Label className="label-tiny">Custom Domain (subdomain tenant)</Label>
                 <Input value={c.custom_domain||""} onChange={e=>setC({...c, custom_domain: e.target.value})} placeholder="procura.perusahaan.com" data-testid="cs-custom-domain" className="font-mono text-xs"/>
-                <div className="text-[10px] text-slate-500 mt-1">Setup DNS CNAME — lihat <code>CUSTOM_DOMAIN.md</code></div>
+                <button type="button" onClick={()=>{
+                  const token = prompt("Cloudflare API Token (dari cloudflare.com/profile/api-tokens)"); if(!token) return;
+                  const zone = prompt("Zone ID (di dashboard domain → Overview → API section)"); if(!zone) return;
+                  const sub = prompt("Subdomain (mis: procura)", "procura"); if(!sub) return;
+                  const tgt = prompt("Target CNAME (host preview URL, tanpa https://)", window.location.hostname); if(!tgt) return;
+                  api.post("/settings/dns-wizard/cloudflare", { api_token: token, zone_id: zone, subdomain: sub, target: tgt, proxied: true })
+                    .then(r=>{ toast.success(`CNAME ${r.data.domain} → ${r.data.target} dibuat + SSL auto`); setC({...c, custom_domain: r.data.domain}); })
+                    .catch(e=>toast.error(e.response?.data?.detail));
+                }} className="text-[10px] mt-1 px-2 py-1 bg-orange-500 hover:bg-orange-600 text-white rounded font-semibold" data-testid="cs-dns-wizard">⚡ Wizard DNS (Cloudflare)</button>
               </div>
             </div>
             <div><Label className="label-tiny">Alamat</Label><Textarea value={c.address||""} onChange={e=>setC({...c,address:e.target.value})} data-testid="cs-address"/></div>

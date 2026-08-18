@@ -42,6 +42,8 @@ from routes_notifications import router as notif_router
 from routes_vendor_suggest import router as vsuggest_router
 from routes_fx import router as fx_router
 from routes_digest import router as digest_router
+from routes_dns_wizard import router as dns_wizard_router
+from routes_ab_analytics import router as ab_router
 
 
 logging.basicConfig(
@@ -146,6 +148,8 @@ app.include_router(notif_router)
 app.include_router(vsuggest_router)
 app.include_router(fx_router)
 app.include_router(digest_router)
+app.include_router(dns_wizard_router)
+app.include_router(ab_router)
 
 
 # ---------- CORS ----------

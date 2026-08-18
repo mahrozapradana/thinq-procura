@@ -63,6 +63,22 @@ async def upload_ls_file(file: UploadFile = File(...), user=Depends(get_current_
     }
 
 
+@router.post("/uploads/signed-url")
+async def create_signed_url(path: str, expires_in: int = 300, user=Depends(get_current_active_user)):
+    """Generate a Supabase signed URL for a private asset (default 5 min TTL)."""
+    url, key, bucket = _supabase_conf()
+    if not url or not key:
+        raise HTTPException(500, "Supabase belum dikonfigurasi.")
+    sign_url = f"{url}/storage/v1/object/sign/{bucket}/{path}"
+    r = requests.post(sign_url, json={"expiresIn": expires_in}, headers={"Authorization": f"Bearer {key}", "apikey": key}, timeout=15)
+    if r.status_code >= 300:
+        raise HTTPException(424, f"Signed URL gagal: {r.text[:200]}")
+    data = r.json()
+    signed_path = data.get("signedURL") or data.get("signedUrl") or ""
+    full = f"{url}/storage/v1{signed_path}" if signed_path.startswith("/") else signed_path
+    return {"ok": True, "url": full, "expires_in": expires_in, "path": path}
+
+
 @router.post("/uploads/attachment")
 async def upload_attachment(file: UploadFile = File(...), user=Depends(get_current_active_user)):
     """General attachment upload (e.g. PR quotes/specs). Same bucket, 'attachments' prefix."""
