@@ -199,33 +199,45 @@ export default function SettingsPage() {
 }
 
 function NotifPrefsPanel() {
-  const [p, setP] = useState({ email: true, bell: true });
+  const TYPES = [
+    { key: "rfq_reply", label: "Balasan RFQ Vendor" },
+    { key: "approval", label: "Approval PR/PO/Budget" },
+    { key: "rating", label: "Permintaan Rating Vendor" },
+    { key: "po_new", label: "PO Baru (vendor)" },
+    { key: "general", label: "Notifikasi Umum" },
+  ];
+  const [p, setP] = useState({ email: {}, bell: {} });
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
-    api.get("/users/me/notification-prefs").then(r => { setP(r.data); setLoaded(true); }).catch(() => setLoaded(true));
+    api.get("/users/me/notification-prefs").then(r => {
+      const d = r.data || {};
+      // Normalize legacy boolean to per-type map
+      const norm = (v) => typeof v === "object" && v !== null ? v : TYPES.reduce((a,t)=>({...a,[t.key]: v!==false}), {});
+      setP({ email: norm(d.email), bell: norm(d.bell) });
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
   }, []);
+  const toggle = (channel, key) => setP(prev => ({ ...prev, [channel]: {...prev[channel], [key]: !prev[channel][key]} }));
   const save = async () => {
     try { await api.put("/users/me/notification-prefs", p); toast.success("Preferensi tersimpan"); }
     catch(e){ toast.error(e.response?.data?.detail); }
   };
   if (!loaded) return <div className="text-sm text-slate-500">Memuat...</div>;
   return (
-    <div className="bg-white border border-slate-200 rounded-md p-6 max-w-xl space-y-4" data-testid="notif-prefs-panel">
-      <div className="p-3 border border-blue-200 bg-blue-50 rounded text-xs text-blue-800">Pilih saluran notifikasi mana yang Anda inginkan. Approver biasanya butuh email (untuk approve dari HP), staff cukup bell.</div>
-      <div className="flex items-center justify-between border border-slate-200 rounded p-3">
-        <div>
-          <div className="text-sm font-semibold">Email</div>
-          <div className="text-xs text-slate-500">Terima notifikasi via email (SMTP)</div>
-        </div>
-        <Switch checked={p.email} onCheckedChange={v => setP({...p, email: v})} data-testid="prefs-email"/>
-      </div>
-      <div className="flex items-center justify-between border border-slate-200 rounded p-3">
-        <div>
-          <div className="text-sm font-semibold">Bell (In-App Real-Time)</div>
-          <div className="text-xs text-slate-500">Push instan via Server-Sent Events ke bell topbar</div>
-        </div>
-        <Switch checked={p.bell} onCheckedChange={v => setP({...p, bell: v})} data-testid="prefs-bell"/>
-      </div>
+    <div className="bg-white border border-slate-200 rounded-md p-6 max-w-2xl space-y-4" data-testid="notif-prefs-panel">
+      <div className="p-3 border border-blue-200 bg-blue-50 rounded text-xs text-blue-800">Atur per-tipe: mana yang mau via email, mana cukup bell in-app. Approver biasanya butuh email untuk approval. Vendor cukup bell + PO baru.</div>
+      <table className="data-table">
+        <thead><tr><th>Jenis Notifikasi</th><th className="text-center">Email (SMTP)</th><th className="text-center">Bell (SSE)</th></tr></thead>
+        <tbody>
+          {TYPES.map(t => (
+            <tr key={t.key} data-testid={`prefs-row-${t.key}`}>
+              <td>{t.label}</td>
+              <td className="text-center"><Switch checked={!!p.email[t.key]} onCheckedChange={()=>toggle("email", t.key)} data-testid={`prefs-email-${t.key}`}/></td>
+              <td className="text-center"><Switch checked={!!p.bell[t.key]} onCheckedChange={()=>toggle("bell", t.key)} data-testid={`prefs-bell-${t.key}`}/></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
       <Button onClick={save} data-testid="prefs-save">Simpan Preferensi</Button>
     </div>
   );

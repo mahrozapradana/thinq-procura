@@ -269,3 +269,37 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - P3: SSE multi-worker support via Redis pub/sub bila uvicorn dijalankan multi-worker
 - P3: Vendor Portal juga mendapat bell + SSE untuk PO acknowledgement
 
+
+## Iteration 16 – 2026-02-18 (PR History Suggest + Granular Notif Prefs + Vendor Bell + Redis-ready)
+### Added
+- **Vendor Suggest — PR History Signal**:
+  - `routes_vendor_suggest.py` sekarang juga membaca `db.prs` dengan `preferred_vendor_id` (dari fitur PR Suggest sebelumnya).
+  - Field baru per vendor: `pr_considered` count. Bonus scoring +1% per PR (capped 5%) → vendor baru yang pernah dipertimbangkan requester tetap muncul walau belum ada PO.
+  - Reasons: "Pernah dipertimbangkan di N PR" ditambahkan bila `pr_considered > 0`.
+- **Notif Granular Per-Tipe**:
+  - Prefs schema di-upgrade: `{email: dict|bool, bell: dict|bool}` — dict berisi per-type flag `{rfq_reply, approval, rating, po_new, general}`. Backward-compatible dengan legacy boolean.
+  - `create_notification` cek `bell_prefs[ntype]` dan `email_prefs[ntype]` sebelum insert/publish/kirim email.
+  - Frontend: Tab "Preferensi Notif" sekarang tampilkan tabel 5 baris tipe × 2 kolom channel (Email/Bell) dengan Switch masing-masing. Auto-migrasi legacy boolean ke per-type map di UI.
+- **Vendor Portal SSE**:
+  - Layout tetap satu (`Layout.jsx`) sehingga `NotificationsBell` yang sudah ada juga muncul di topbar vendor.
+  - Hook di `POST /api/pos/{pid}/send`: buat notif tipe `po_new` untuk semua users role=vendor yang punya `vendor_id` sama, link ke `/vendor/pos`.
+  - Existing `send_rating_reminder` sudah memakai `create_notification` implicitly via email; sekarang bell juga ter-trigger via `create_notification` bila dipanggil untuk buyer. Vendor akan menerima bell "PO baru" real-time via SSE.
+  - Verified: login vendor → bell icon tampil di topbar; endpoint /notifications/stream accessible ✓
+- **Redis Pub/Sub — Multi-Worker Ready**:
+  - New file `/app/backend/redis_pubsub.py` — abstraksi opsional. Jika env `REDIS_URL` di-set + `pip install redis`, notifikasi otomatis dipublish ke channel `epr:notif:{user_id}` sehingga SSE stream di worker lain dapat menerima & meneruskan ke client-nya.
+  - `create_notification` mem-publish setelah insert lokal — dibungkus try/except supaya tetap works tanpa Redis (single-worker fallback).
+  - Belum aktif dalam preview (butuh REDIS_URL). Instruksi cara enable ada di docstring modul.
+
+### Verified via curl + Playwright
+- `/vendor-suggestions?top=3`: response includes `pr_considered` field, criteria mentions "+5% PR history" ✓
+- Prefs PUT with granular `{email:{approval:true, ...}, bell:{all:true}}` round-trip OK ✓
+- Vendor login: topbar shows Bell + timestamp; sidebar restricted to 8 vendor menus ✓
+- Settings > Preferensi Notif: 5 rows (RFQ reply / Approval / Rating / PO Baru / Umum) with Email + Bell columns and toggles ✓
+- Cron `.emergent/crons.yml` includes `fetch-fx-rates` daily 06:00 UTC ✓
+
+### Backlog / Next
+- P3: Vendor Portal sidebar juga tampilkan quick unread count per section (RFQ / PO / Invoice)
+- P3: Redis actual deploy (bila multi-worker scale-out diperlukan): `pip install redis` + set REDIS_URL
+- P3: Notif digest email harian ringkasan (untuk yang matikan email realtime)
+- P4: In-app dark mode toggle per user
+

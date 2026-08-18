@@ -575,6 +575,20 @@ async def send_po(pid: str, user=Depends(get_current_active_user)):
     if po.get("status") != "approved":
         raise HTTPException(400, "PO not approved yet")
     await db.pos.update_one({"id": pid}, {"$set": {"status": "sent", "shipping_status": "waiting_delivery"}})
+    # Notify vendor users
+    try:
+        from routes_notifications import create_notification
+        vendor_users = await db.users.find({"vendor_id": po.get("vendor_id"), "role": "vendor"}, {"id": 1, "_id": 0}).to_list(20)
+        for vu in vendor_users:
+            await create_notification(
+                vu["id"], "po_new",
+                f"PO baru dari buyer: {po.get('po_number')}",
+                f"PO senilai Rp {po.get('amount_total', po.get('total', 0)):,.0f} sudah disetujui — mohon konfirmasi terima.".replace(",", "."),
+                f"/vendor/pos",
+                {"po_id": pid, "po_number": po.get("po_number")},
+            )
+    except Exception:
+        pass
     return {"ok": True}
 
 

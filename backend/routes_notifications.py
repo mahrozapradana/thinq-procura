@@ -29,7 +29,11 @@ def _publish(user_id: str, payload: dict):
 
 
 async def create_notification(user_id: str, ntype: str, title: str, message: str, link: str = "", meta: dict | None = None):
-    """Insert an in-app notification for a user + push via SSE + optionally email."""
+    """Insert an in-app notification for a user + push via SSE + optionally email.
+
+    Notification types (used for granular prefs):
+      rfq_reply | approval | rating | po_new | general
+    """
     try:
         db = get_db()
         doc = {
@@ -43,14 +47,26 @@ async def create_notification(user_id: str, ntype: str, title: str, message: str
             "is_read": False,
             "created_at": now_iso(),
         }
-        await db.notifications.insert_one(doc)
-        _publish(user_id, {k: v for k, v in doc.items() if k != "_id"})
-        # Also send email if user has email pref
+        # Check user prefs for BELL channel (default: all types on)
+        user = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "notification_prefs": 1})
+        prefs = (user or {}).get("notification_prefs") or {}
+        bell_prefs = prefs.get("bell") if isinstance(prefs.get("bell"), dict) else {"_default": bool(prefs.get("bell", True))}
+        email_prefs = prefs.get("email") if isinstance(prefs.get("email"), dict) else {"_default": bool(prefs.get("email", True))}
+        bell_on = bell_prefs.get(ntype, bell_prefs.get("_default", True))
+        email_on = email_prefs.get(ntype, email_prefs.get("_default", True))
+        if bell_on:
+            await db.notifications.insert_one(doc)
+            _publish(user_id, {k: v for k, v in doc.items() if k != "_id"})
+            # Cross-worker publish via Redis (if configured)
+            try:
+                from redis_pubsub import publish_to_redis
+                await publish_to_redis(user_id, {k: v for k, v in doc.items() if k != "_id"})
+            except Exception:
+                pass
+        # Email
         try:
-            user = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "notification_prefs": 1})
-            prefs = (user or {}).get("notification_prefs") or {"email": False, "bell": True}
             link_html = f'<p><a href="{link}">Buka detail</a></p>' if link else ''
-            if prefs.get("email") and user and user.get("email"):
+            if email_on and user and user.get("email"):
                 from notifications import send_email
                 await send_email([user["email"]], f"[Procura] {title}", f"<p>{message}</p>{link_html}")
         except Exception:
@@ -127,8 +143,8 @@ async def notifications_stream(request: Request, user=Depends(get_current_active
 
 
 class PrefsIn(BaseModel):
-    email: bool = True
-    bell: bool = True
+    email: dict | bool = True  # legacy bool ok; dict = per-type {rfq_reply, approval, rating, po_new, general}
+    bell: dict | bool = True
 
 
 @router.get("/users/me/notification-prefs")

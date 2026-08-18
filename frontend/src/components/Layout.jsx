@@ -29,7 +29,7 @@ export default function Layout({ children }) {
           <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400 mt-1">E-Procurement Suite</div>
         </div>
         <nav className="flex-1 overflow-y-auto py-3">
-          {isVendor ? (
+            {isVendor ? (
             <>
               <div className="side-group-label">Vendor Portal</div>
               <NavLink to="/vendor" end className={({isActive}) => `side-link ${isActive?'active':''}`} data-testid="nav-vendor-home">
@@ -145,6 +145,7 @@ export default function Layout({ children }) {
           </div>
         </header>
         <div className="p-6 flex-1 min-w-0 fade-up">{children}</div>
+
       </main>
       <Toaster richColors position="top-right" />
     </div>
