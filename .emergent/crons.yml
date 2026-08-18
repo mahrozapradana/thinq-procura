@@ -1,0 +1,8 @@
+crons:
+  - name: approval-sla
+    description: "Daily 09:00 UTC reminder to approvers with PR/PO/Budget waiting >48h"
+    cron: "0 9 * * *"
+    endpoint: "{{BASE_URL}}/api/cron/approval-sla-alerts"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true

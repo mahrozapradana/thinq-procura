@@ -81,3 +81,15 @@ Membuat aplikasi e-procurement lengkap dari Purchase Request sampai Purchase Ord
 - Iteration 1: 41/41 tests passed
 - Iteration 2: 24/24 tests passed
 - Combined: 65/65
+
+## Iteration 3 – 2026-02-14
+### Added
+- **Budget Progress Preview in PR form** — new endpoint GET /api/budgets/check/{department_id}; PR create dialog fetches approved budgets on dept select and shows a per-budget progress bar with existing consumption (grey), projected new consumption (blue), and overshoot warning (red). Requester sees live if they will exceed budget.
+- **Approval SLA Cron** — `.emergent/crons.yml` schedules daily 09:00 UTC → POST /api/cron/approval-sla-alerts. Backend endpoint (routes_cron.py) auths via WEBHOOK_CRON_SECRET, background-dispatches emails to approvers on PR/PO/Budget in pending_approval >48h. Verified: 401 without bearer, 200 with correct token.
+- **Supabase Storage bucket 'ls-documents'** — user created bucket; upload confirmed working (Vendor Portal → Dokumen LS → Upload File returns public URL).
+
+### Env additions
+- WEBHOOK_CRON_SECRET (backend/.env)
+
+### Tests
+- All previous 65 tests still pass. New: manual verification of cron auth + budget preview endpoint via curl + UI screenshot.

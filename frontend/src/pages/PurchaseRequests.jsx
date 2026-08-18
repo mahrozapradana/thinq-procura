@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api, { fmtIDR } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,7 @@ export default function PurchaseRequests() {
   const [rows, setRows] = useState([]);
   const [depts, setDepts] = useState([]);
   const [products, setProducts] = useState([]);
+  const [deptBudgets, setDeptBudgets] = useState([]);
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState(null);
   const [form, setForm] = useState({ items: [], procurement_type:"DIRECT", is_bonded: false });
@@ -42,6 +43,25 @@ export default function PurchaseRequests() {
     api.get("/departments").then(r=>setDepts(r.data));
     api.get("/products").then(r=>setProducts(r.data));
   }, []);
+  useEffect(() => {
+    if (form.department_id) {
+      api.get(`/budgets/check/${form.department_id}`).then(r => setDeptBudgets(r.data));
+    } else {
+      setDeptBudgets([]);
+    }
+  }, [form.department_id]);
+
+  const budgetPreview = useMemo(() => {
+    const alloc = {};
+    for (const it of form.items) {
+      const sub = parseFloat(it.qty || 0) * parseFloat(it.price || 0);
+      if (!sub) continue;
+      let b = deptBudgets.find(x => x.product_id === it.product_id) || deptBudgets.find(x => x.product_id == null);
+      if (!b) continue;
+      alloc[b.id] = (alloc[b.id] || 0) + sub;
+    }
+    return alloc;
+  }, [form.items, deptBudgets]);
 
   const addItem = () => setForm({...form, items: [...form.items, {product_id:"",qty:1,price:0}]});
   const setItem = (i,k,v) => setForm({...form, items: form.items.map((it,idx)=>idx===i?{...it,[k]:v}:it)});
@@ -122,6 +142,38 @@ export default function PurchaseRequests() {
                 ))}
                 <div className="mt-2 flex justify-end text-sm font-heading font-bold">Total: <span className="ml-2 font-mono">{fmtIDR(total)}</span></div>
               </div>
+
+              {/* Budget preview */}
+              {form.department_id && (
+                <div className="border border-slate-200 rounded p-3 bg-slate-50" data-testid="pr-budget-preview">
+                  <div className="label-tiny mb-2">Budget Utilization Preview</div>
+                  {deptBudgets.length === 0 && <div className="text-xs text-red-600">⚠ Belum ada budget approved untuk department ini. PR akan ditolak.</div>}
+                  {deptBudgets.map(b => {
+                    const projected = budgetPreview[b.id] || 0;
+                    const totalUsed = b.used_amount + projected;
+                    const pct = b.amount ? Math.min(100, (totalUsed / b.amount) * 100) : 0;
+                    const overshoot = totalUsed > b.amount;
+                    const label = b.product_id ? (products.find(p=>p.id===b.product_id)?.name || "Product") : "Department (SEMUA)";
+                    return (
+                      <div key={b.id} className="mb-2" data-testid={`pr-budget-preview-${b.id}`}>
+                        <div className="flex justify-between text-xs">
+                          <div className="font-semibold">{label} <span className="font-mono text-slate-500 ml-1">{b.period}</span></div>
+                          <div className={`font-mono ${overshoot ? "text-red-600 font-bold" : "text-slate-600"}`}>
+                            {fmtIDR(totalUsed)} / {fmtIDR(b.amount)}
+                            {projected > 0 && <span className="ml-1 text-blue-600">(+{fmtIDR(projected)})</span>}
+                          </div>
+                        </div>
+                        <div className="mt-1 h-2 bg-slate-200 rounded-sm overflow-hidden flex">
+                          <div className="bg-slate-500" style={{ width: `${b.amount ? (b.used_amount / b.amount) * 100 : 0}%` }}/>
+                          <div className={overshoot ? "bg-red-500" : "bg-blue-500"} style={{ width: `${b.amount ? Math.min(100 - (b.used_amount / b.amount) * 100, (projected / b.amount) * 100) : 0}%` }}/>
+                        </div>
+                        {overshoot && <div className="text-[10px] text-red-600 mt-0.5">Melebihi budget sebesar {fmtIDR(totalUsed - b.amount)} — PR akan ditolak.</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               <div><Label className="label-tiny">Catatan</Label><Textarea value={form.notes||""} onChange={e=>setForm({...form,notes:e.target.value})} data-testid="pr-notes"/></div>
             </div>
             <DialogFooter><Button onClick={submit} disabled={!form.items.length || !form.department_id} data-testid="pr-save">Buat PR</Button></DialogFooter>

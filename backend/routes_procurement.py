@@ -99,6 +99,27 @@ class BudgetIn(BaseModel):
     note: Optional[str] = None
 
 
+@router.get("/budgets/check/{department_id}")
+async def budgets_check(department_id: str, user=Depends(get_current_active_user)):
+    """Return approved budgets for a department (product-level + dept-level) with usage."""
+    db = get_db()
+    q = {"department_id": department_id, "status": "approved"}
+    budgets = await db.budgets.find(q, {"_id": 0}).to_list(500)
+    out = []
+    for b in budgets:
+        amt = float(b.get("amount") or 0)
+        used = float(b.get("used_amount") or 0)
+        out.append({
+            "id": b["id"],
+            "product_id": b.get("product_id"),
+            "period": b.get("period"),
+            "amount": amt,
+            "used_amount": used,
+            "available": amt - used,
+        })
+    return out
+
+
 @router.get("/budgets")
 async def list_budgets(user=Depends(get_current_active_user)):
     db = get_db()
