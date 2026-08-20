@@ -52,6 +52,8 @@ export default function PurchaseOrders() {
   // Verified pricelist hints per product_id — used in merge PR→PO dialog
   const [verifiedHints, setVerifiedHints] = useState({});
 
+  const selectedIds = Object.keys(selected).filter(k=>selected[k]);
+
   // Fetch verified pricelist for each product that appears in selected PRs
   useEffect(() => {
     const productIds = [...new Set(selectedIds.flatMap(id => (prs.find(p=>p.id===id)?.items||[]).map(i=>i.product_id).filter(Boolean)))];
@@ -86,8 +88,6 @@ export default function PurchaseOrders() {
     api.get("/settings/company").then(r=>setCompanyRates(r.data.exchange_rates || {})).catch(()=>{});
   };
   useEffect(() => { load(); }, [page, q]);
-
-  const selectedIds = Object.keys(selected).filter(k=>selected[k]);
 
   useEffect(() => {
     if (selectedIds.length === 0) { setSuggestions([]); return; }

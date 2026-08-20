@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 10: Tested manual vendor create (backend+UI) + CSV import UI + preview regression for /po /customs /warehouse-stock. Backend pytest 8/8 pass covering manual create success (approved status + user account + login works with vendor123), duplicate-email 400, vendor-role forbidden 403, missing-field 422, CSV import endpoint 200, and /po /customs-documents /warehouse-stock returning 200 HTML. Frontend: /vendors dialog (all 12 vc-* testids) creates + shows new vendor in table, 0 SelectItem warnings, 0 console errors. CRITICAL: discovered /po was crashing at runtime on preview with TDZ error 'Cannot access selectedIds before initialization' — NOT a stale-build issue as review-request assumed. Fixed by moving const selectedIds declaration above the useEffect that referenced it. Also normalized vendor email to lowercase in POST /api/vendors to match login lowercase behavior (otherwise uppercase emails could not log in).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/vendors", "issue": "Was storing email as provided (no lower()) while POST /api/auth/login lowercases input, causing login failures for vendors with any uppercase email. Fixed in this iteration."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "PurchaseOrders.jsx (/po)", "issue": "ReferenceError: Cannot access 'selectedIds' before initialization — useEffect at line 56 references const declared at line 90 (TDZ). Blank /po page and red runtime overlay. FIXED by moving `const selectedIds = ...` above the effect.", "selector": "/po route", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Router (App.js)", "issues": ["Paths /customs-documents and /warehouse-stock referenced by user do not exist in the router — actual routes are /customs and /stock. Wildcard route redirects them silently to '/', so they look like a blank/dashboard page. Consider adding aliases or updating docs/deploy links."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration10_vendor_create.py",
+    "/app/test_reports/pytest/iter10_results.xml"
+  ],
+  "action_items": [
+    "None blocking — the TDZ /po crash and vendor email casing are already fixed by this test agent. Confirm the fixes: (1) /app/frontend/src/pages/PurchaseOrders.jsx (selectedIds hoisted above useEffect), (2) /app/backend/routes_masters.py POST /vendors uses email = payload.email.lower().",
+    "Consider adding /customs-documents and /warehouse-stock as aliases in App.js Router or informing users the correct URLs are /customs and /stock. This is likely why the user reported those two as 'blank' — they never existed as routes."
+  ],
+  "critical_code_review_comments": [
+    "PurchaseOrders.jsx had a TDZ bug that would crash the entire /po page in production build (in dev the error overlay masks it) — this is exactly the 'blank page' symptom the user reported. The claim 'stale build' was incorrect; the code itself is broken.",
+    "routes_masters.py POST /vendors did not normalize email — inconsistent with create_user (L354) and login (server.py L99). Now consistent.",
+    "Router uses <Route path='*'/> to Navigate to '/', which hides missing-route bugs. Consider a real 404 page in production to surface such issues instead of blank/dashboard fallback."
+  ],
+  "updated_files": [
+    "/app/backend/routes_masters.py (POST /vendors now lowercases email)",
+    "/app/frontend/src/pages/PurchaseOrders.jsx (moved selectedIds const above the useEffect that references it)",
+    "/app/backend/tests/test_iteration10_vendor_create.py (new)"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (vendor create + /po after fix)"},
+  "test_credentials": "admin: mahrozapradana46@gmail.com/admin123",
+  "seed_data_creation": "Created 4 test vendors during backend + UI testing (TEST_vendor_*, TEST_dup_*, TEST_forbid_*, TEST_csv_* via pytest; PT UI Iter10 <suffix> via Playwright). All persist under /api/vendors and their user accounts under /api/users.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Two fixes applied by testing agent: (1) POST /api/vendors email lowercasing, (2) PurchaseOrders.jsx selectedIds TDZ. If deploying to thinq-procura.com, user should redeploy WITH these fixes (not just stale-build assumption). The URLs /customs-documents and /warehouse-stock never existed in the router — actual routes are /customs and /stock; consider aliasing.",
+  "rca of the issue": "Root cause of /po blank page in review: In PurchaseOrders.jsx, a useEffect (lines 56-64) referenced `selectedIds` before its `const selectedIds = Object.keys(selected).filter(...)` declaration at line 90. In production/preview both, on first render React executes the useEffect closure which reads the TDZ binding and throws ReferenceError. Dev overlay shows red screen; production build shows a blank page (same symptom user reported on deployed site). The fix hoists the const above the useEffect. Root cause of vendor login failure (found during backend test): POST /api/vendors stored email verbatim while /api/auth/login lowercases the input, so any uppercase-cased email vendor could not log in. Fixed by mirroring existing lowercase pattern used in create_user."
+}

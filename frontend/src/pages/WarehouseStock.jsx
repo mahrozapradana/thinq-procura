@@ -30,17 +30,17 @@ export default function WarehouseStock() {
       </div>
       <div className="flex flex-wrap gap-2 items-center">
         <Input placeholder="Cari product/warehouse/lot…" value={q} onChange={e=>setQ(e.target.value)} className="max-w-xs" data-testid="stock-search"/>
-        <Select value={wh} onValueChange={setWh}>
+        <Select value={wh||"__all"} onValueChange={v=>setWh(v==="__all"?"":v)}>
           <SelectTrigger className="max-w-xs" data-testid="stock-wh"><SelectValue placeholder="Semua Warehouse"/></SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Semua Warehouse</SelectItem>
+            <SelectItem value="__all">Semua Warehouse</SelectItem>
             {warehouses.map(w=><SelectItem key={w.id} value={w.id}>{w.name} {w.is_bonded?"(Bonded)":""}</SelectItem>)}
           </SelectContent>
         </Select>
-        <Select value={bond} onValueChange={setBond}>
+        <Select value={bond||"__all"} onValueChange={v=>setBond(v==="__all"?"":v)}>
           <SelectTrigger className="max-w-[180px]" data-testid="stock-bonded"><SelectValue placeholder="Semua"/></SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Semua</SelectItem>
+            <SelectItem value="__all">Semua</SelectItem>
             <SelectItem value="yes">Bonded / KB</SelectItem>
             <SelectItem value="no">Non Bonded</SelectItem>
           </SelectContent>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Check, X, UserCheck, Star, Ban, Search } from "lucide-react";
+import { Check, X, UserCheck, Star, Ban, Search, Plus, FileUp, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -23,9 +23,35 @@ export default function VendorsMgmt() {
   const [reason, setReason] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [form, setForm] = useState({ default_password: "vendor123", is_importer: false });
 
   const load = () => api.get("/vendors").then(r=>setRows(r.data));
   useEffect(()=>{ load(); },[]);
+
+  const createManual = async () => {
+    try {
+      if (!form.company_name || !form.name || !form.email) return toast.error("Nama Perusahaan / Kontak / Email wajib");
+      const r = await api.post("/vendors", form);
+      toast.success(`Vendor "${r.data.company_name}" dibuat${r.data.default_password?` — password: ${r.data.default_password}`:""}`);
+      setCreateOpen(false); setForm({ default_password: "vendor123", is_importer: false }); load();
+    } catch(e){ toast.error(e.response?.data?.detail || "Gagal"); }
+  };
+  const importCsv = async (file) => {
+    setImporting(true);
+    try {
+      const fd = new FormData(); fd.append("file", file);
+      const t = localStorage.getItem("access_token");
+      const url = `${process.env.REACT_APP_BACKEND_URL}/api/import/vendors.csv`;
+      const r = await fetch(url, { method:"POST", credentials:"include", headers: t?{Authorization:`Bearer ${t}`}:{}, body: fd });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || "Import gagal");
+      toast.success(`Impor ${d.created||d.count||0} vendor sukses`);
+      load();
+    } catch(e){ toast.error(e.message); }
+    finally { setImporting(false); }
+  };
 
   const filtered = rows.filter(v => {
     if (!q) return true;
@@ -64,10 +90,39 @@ export default function VendorsMgmt() {
 
       <div className="flex items-center gap-2">
         <div className="relative max-w-md flex-1"><Search className="absolute left-2 top-2.5 text-slate-400" size={14}/><Input placeholder="Cari perusahaan/email/kontak…" value={q} onChange={e=>{setPage(1);setQ(e.target.value);}} className="pl-8" data-testid="vendor-search"/></div>
-        <div className="text-xs text-slate-500 ml-auto">{filtered.length} vendor · Hal {page}/{totalPages}</div>
+        <label className="cursor-pointer">
+          <input type="file" className="hidden" accept=".csv,.xlsx,.xls" onChange={e=>{const f=e.target.files?.[0];if(f){importCsv(f); e.target.value="";}}} disabled={importing} data-testid="vendor-import-file"/>
+          <span className={`inline-flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium border ${importing?"bg-slate-200 text-slate-500 border-slate-300":"bg-white text-slate-700 border-slate-300 hover:bg-slate-50"}`} data-testid="vendor-import-btn">
+            <FileUp size={12}/>{importing?"Mengimpor...":"Import CSV/XLSX"}
+          </span>
+        </label>
+        <Button onClick={()=>setCreateOpen(true)} data-testid="vendor-create-btn"><Plus size={14}/> Buat Vendor</Button>
+        <div className="text-xs text-slate-500 ml-2">{filtered.length} vendor · Hal {page}/{totalPages}</div>
         <Button variant="outline" size="sm" disabled={page<=1} onClick={()=>setPage(p=>p-1)} data-testid="vendor-prev">‹</Button>
         <Button variant="outline" size="sm" disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)} data-testid="vendor-next">›</Button>
       </div>
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Buat Vendor Manual</DialogTitle></DialogHeader>
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label className="label-tiny">Nama Perusahaan *</Label><Input value={form.company_name||""} onChange={e=>setForm({...form, company_name:e.target.value})} data-testid="vc-company"/></div>
+            <div><Label className="label-tiny">Kode Vendor (opsional)</Label><Input value={form.code||""} onChange={e=>setForm({...form, code:e.target.value})} data-testid="vc-code" placeholder="Auto-generate jika kosong"/></div>
+            <div><Label className="label-tiny">Nama Kontak (PIC) *</Label><Input value={form.name||""} onChange={e=>setForm({...form, name:e.target.value})} data-testid="vc-name"/></div>
+            <div><Label className="label-tiny">Email *</Label><Input type="email" value={form.email||""} onChange={e=>setForm({...form, email:e.target.value})} data-testid="vc-email"/></div>
+            <div><Label className="label-tiny">Telepon</Label><Input value={form.phone||""} onChange={e=>setForm({...form, phone:e.target.value})} data-testid="vc-phone"/></div>
+            <div><Label className="label-tiny">NPWP</Label><Input value={form.npwp||""} onChange={e=>setForm({...form, npwp:e.target.value})} data-testid="vc-npwp"/></div>
+            <div className="col-span-2"><Label className="label-tiny">Alamat</Label><Input value={form.address||""} onChange={e=>setForm({...form, address:e.target.value})} data-testid="vc-address"/></div>
+            <div><Label className="label-tiny">Nama Bank</Label><Input value={form.bank_name||""} onChange={e=>setForm({...form, bank_name:e.target.value})} data-testid="vc-bank"/></div>
+            <div><Label className="label-tiny">No Rekening</Label><Input value={form.bank_account||""} onChange={e=>setForm({...form, bank_account:e.target.value})} data-testid="vc-account"/></div>
+            <div className="col-span-2 flex items-center gap-2">
+              <input type="checkbox" checked={!!form.is_importer} onChange={e=>setForm({...form, is_importer:e.target.checked})} data-testid="vc-importer" id="vc-imp"/>
+              <label htmlFor="vc-imp" className="text-xs cursor-pointer">Importir / bisa terima PO bonded</label>
+            </div>
+            <div className="col-span-2"><Label className="label-tiny">Password Default Vendor Login</Label><Input value={form.default_password||"vendor123"} onChange={e=>setForm({...form, default_password:e.target.value})} data-testid="vc-pw"/></div>
+          </div>
+          <DialogFooter><Button onClick={createManual} data-testid="vc-save">Simpan Vendor</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="bg-white border border-slate-200 rounded-md overflow-x-auto" data-testid="VendorsMgmt_40_6">
         <table className="data-table" style={{ minWidth: 1200 }}>

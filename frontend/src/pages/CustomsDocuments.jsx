@@ -70,10 +70,10 @@ export default function CustomsDocuments() {
       {/* Filter */}
       <div className="flex gap-2 items-center">
         <Input placeholder="Cari register no / BL / CAR…" value={q} onChange={e=>{setPage(1); setQ(e.target.value);}} className="max-w-md" data-testid="customs-search"/>
-        <Select value={bcFilter} onValueChange={v=>setParams(v?{bc:v}:{})}>
+        <Select value={bcFilter||"__all"} onValueChange={v=>setParams(v && v!=="__all"?{bc:v}:{})}>
           <SelectTrigger className="max-w-xs" data-testid="customs-bc-filter"><SelectValue placeholder="Semua BC Type"/></SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Semua BC Type</SelectItem>
+            <SelectItem value="__all">Semua BC Type</SelectItem>
             {BC.map(b=><SelectItem key={b.key} value={b.key}>{b.label}</SelectItem>)}
           </SelectContent>
         </Select>

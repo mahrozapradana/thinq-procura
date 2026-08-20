@@ -237,6 +237,69 @@ async def get_vendor(vid: str, user=Depends(get_current_active_user)):
     return v
 
 
+class VendorCreateIn(BaseModel):
+    company_name: str
+    name: str
+    email: EmailStr
+    phone: Optional[str] = None
+    npwp: Optional[str] = None
+    address: Optional[str] = None
+    bank_name: Optional[str] = None
+    bank_account: Optional[str] = None
+    is_importer: bool = False
+    code: Optional[str] = None
+    default_password: Optional[str] = "vendor123"
+
+
+@router.post("/vendors")
+async def create_vendor_manual(payload: VendorCreateIn, user=Depends(get_current_active_user)):
+    """Procurement/admin manually create + auto-approve vendor + user account."""
+    if user["role"] not in ("admin", "procurement"):
+        raise HTTPException(403, "Not allowed")
+    db = get_db()
+    email = payload.email.lower()
+    if await db.vendors.find_one({"email": email}):
+        raise HTTPException(400, "Vendor dengan email tersebut sudah ada")
+    vid = new_id()
+    doc = {
+        "id": vid,
+        "code": payload.code or f"V-{vid[:8].upper()}",
+        "company_name": payload.company_name,
+        "name": payload.name,
+        "email": email,
+        "phone": payload.phone,
+        "npwp": payload.npwp,
+        "address": payload.address,
+        "bank_name": payload.bank_name,
+        "bank_account": payload.bank_account,
+        "is_importer": payload.is_importer,
+        "status": "approved",
+        "blacklisted": False,
+        "created_at": now_iso(),
+        "approved_at": now_iso(),
+        "created_by": user["id"],
+        "source": "manual",
+    }
+    # Ensure user account for vendor login
+    existing = await db.users.find_one({"email": email})
+    user_id = existing["id"] if existing else new_id()
+    if not existing:
+        await db.users.insert_one({
+            "id": user_id,
+            "email": email,
+            "password_hash": hash_password(payload.default_password or "vendor123"),
+            "name": payload.company_name,
+            "role": "vendor",
+            "status": "active",
+            "vendor_id": vid,
+            "created_at": now_iso(),
+        })
+    doc["user_id"] = user_id
+    await db.vendors.insert_one(doc)
+    default_pw = payload.default_password if not existing else None
+    return {**{k: v for k, v in doc.items() if k != "_id"}, "default_password": default_pw}
+
+
 @router.post("/vendors/{vid}/approve")
 async def approve_vendor(vid: str, payload: VendorApproveIn, user=Depends(get_current_active_user)):
     if user["role"] not in ("admin", "procurement"):

@@ -189,6 +189,36 @@ body {
     background-color: #F8FAFC;
 }
 
+/* Dark mode contrast fixes for data tables */
+.dark .data-table th {
+    background-color: hsl(var(--muted));
+    color: hsl(var(--muted-foreground));
+    border-bottom-color: hsl(var(--border));
+}
+.dark .data-table td {
+    color: hsl(var(--foreground));
+    border-bottom-color: hsl(var(--border));
+    background-color: hsl(var(--card));
+}
+.dark .data-table tr:hover td {
+    background-color: hsl(var(--accent));
+}
+.dark .data-table td .text-slate-400,
+.dark .data-table td .text-slate-500,
+.dark .data-table td .text-slate-600 {
+    color: hsl(var(--muted-foreground)) !important;
+}
+.dark .data-table td .text-slate-700,
+.dark .data-table td .text-slate-800,
+.dark .data-table td .text-slate-900 {
+    color: hsl(var(--foreground)) !important;
+}
+/* Group header row + wrappers should also flip */
+.dark tr.bg-slate-100 { background-color: hsl(var(--muted)) !important; }
+.dark tr.bg-slate-100 td { color: hsl(var(--foreground)) !important; }
+.dark .bg-white { background-color: hsl(var(--card)) !important; }
+.dark .border-slate-200 { border-color: hsl(var(--border)) !important; }
+
 /* Sidebar link */
 .side-link {
     display: flex;
