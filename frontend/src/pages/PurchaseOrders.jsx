@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import api, { fmtIDR } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -52,7 +52,7 @@ export default function PurchaseOrders() {
   // Verified pricelist hints per product_id — used in merge PR→PO dialog
   const [verifiedHints, setVerifiedHints] = useState({});
 
-  const selectedIds = Object.keys(selected).filter(k=>selected[k]);
+  const selectedIds = useMemo(() => Object.keys(selected).filter(k=>selected[k]), [selected]);
 
   // Fetch verified pricelist for each product that appears in selected PRs
   useEffect(() => {
