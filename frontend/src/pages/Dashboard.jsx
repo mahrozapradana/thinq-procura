@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import api, { fmtIDR } from "@/lib/api";
-import { ArrowUpRight, Wallet, ClipboardList, FileText, Gavel, Users, TrendingDown, AlertTriangle, Star } from "lucide-react";
+import { ArrowUpRight, ClipboardList, FileText, Gavel, Users, TrendingDown, AlertTriangle, Star } from "lucide-react";
 import { Link } from "react-router-dom";
+import Pagination from "@/components/Pagination";
 
 function Kpi({ label, value, hint, icon:Icon, testid }) {
   return (
@@ -19,6 +20,7 @@ function Kpi({ label, value, hint, icon:Icon, testid }) {
 export default function Dashboard() {
   const [s, setS] = useState(null);
   const [forecast, setForecast] = useState([]);
+  const [forecastPage, setForecastPage] = useState(1);
   const [pendingRatings, setPendingRatings] = useState([]);
   useEffect(() => {
     api.get("/dashboard/stats").then(r => setS(r.data));
@@ -29,6 +31,12 @@ export default function Dashboard() {
       setPendingRatings(list);
     }).catch(()=>{});
   }, []);
+
+  const forecastPerPage = 10;
+  const forecastPages = Math.max(1, Math.ceil(forecast.length / forecastPerPage));
+  const activeForecastPage = Math.min(forecastPage, forecastPages);
+  const forecastPaged = forecast.slice((activeForecastPage - 1) * forecastPerPage, activeForecastPage * forecastPerPage);
+
   if (!s) return <div className="text-sm text-slate-500">Memuat dashboard...</div>;
 
   return (
@@ -96,24 +104,27 @@ export default function Dashboard() {
             <div className="text-xs text-slate-500">Prediksi berdasarkan burn rate 90 hari terakhir. Warning otomatis untuk yang habis dalam ≤30 hari.</div>
           </div>
         </div>
-        <table className="data-table">
-          <thead><tr><th>Department</th><th>Product</th><th>Periode</th><th>Sisa</th><th>Burn / bulan</th><th>Sisa Hari</th><th>Est. Habis</th><th>Warning</th></tr></thead>
-          <tbody>
-            {forecast.length === 0 && <tr><td colSpan={8} className="text-center py-6 text-slate-400">Belum ada data untuk forecast</td></tr>}
-            {forecast.map(f => (
-              <tr key={f.budget_id} data-testid={`forecast-row-${f.budget_id}`} className={f.days_to_exhaust && f.days_to_exhaust <= 30 ? "bg-red-50" : ""}>
-                <td>{f.department}</td>
-                <td>{f.product}</td>
-                <td className="font-mono text-xs">{f.period}</td>
-                <td className="font-mono">{fmtIDR(f.available)}</td>
-                <td className="font-mono text-slate-600">{fmtIDR(f.avg_monthly_burn)}</td>
-                <td className="font-mono">{f.days_to_exhaust != null ? `${f.days_to_exhaust} hr` : "-"}</td>
-                <td className="text-xs">{f.projected_exhaust_date || "-"}</td>
-                <td className="text-xs">{f.warning ? <span className={f.warning.startsWith("❌") ? "text-red-600 font-semibold" : "text-amber-600 font-semibold flex items-center gap-1"}><AlertTriangle size={12}/> {f.warning.replace(/^[⚠️❌]\s?/, "")}</span> : <span className="text-emerald-600 text-xs">On track</span>}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <thead><tr><th>Department</th><th>Product</th><th>Periode</th><th>Sisa</th><th>Burn / bulan</th><th>Sisa Hari</th><th>Est. Habis</th><th>Warning</th></tr></thead>
+            <tbody>
+              {forecast.length === 0 && <tr><td colSpan={8} className="text-center py-6 text-slate-400">Belum ada data untuk forecast</td></tr>}
+              {forecastPaged.map(f => (
+                <tr key={f.budget_id} data-testid={`forecast-row-${f.budget_id}`} className={f.days_to_exhaust && f.days_to_exhaust <= 30 ? "bg-red-50" : ""}>
+                  <td>{f.department}</td>
+                  <td>{f.product}</td>
+                  <td className="font-mono text-xs">{f.period}</td>
+                  <td className="font-mono">{fmtIDR(f.available)}</td>
+                  <td className="font-mono text-slate-600">{fmtIDR(f.avg_monthly_burn)}</td>
+                  <td className="font-mono">{f.days_to_exhaust != null ? `${f.days_to_exhaust} hr` : "-"}</td>
+                  <td className="text-xs">{f.projected_exhaust_date || "-"}</td>
+                  <td className="text-xs">{f.warning ? <span className={f.warning.startsWith("❌") ? "text-red-600 font-semibold" : "text-amber-600 font-semibold flex items-center gap-1"}><AlertTriangle size={12}/> {f.warning.replace(/^(?:⚠️|❌)\s?/, "")}</span> : <span className="text-emerald-600 text-xs">On track</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <Pagination page={activeForecastPage} pages={forecastPages} total={forecast.length} onChange={setForecastPage} perPage={forecastPerPage}/>
       </div>
 
       {/* Vendor Analytics */}
@@ -124,6 +135,11 @@ export default function Dashboard() {
 
 function VendorAnalytics() {
   const [rows, setRows] = useState([]);
+  const [page, setPage] = useState(1);
+  const perPage = 10;
+  const pages = Math.max(1, Math.ceil(rows.length / perPage));
+  const activePage = Math.min(page, pages);
+  const pagedRows = rows.slice((activePage - 1) * perPage, activePage * perPage);
   useEffect(() => { import("@/lib/api").then(m => m.default.get("/dashboard/vendor-analytics").then(r => setRows(r.data))); }, []);
   return (
     <div className="bg-white border border-slate-200 rounded-md" data-testid="vendor-analytics">
@@ -137,9 +153,9 @@ function VendorAnalytics() {
           <thead><tr><th>#</th><th>Vendor</th><th>PO Count</th><th>Completed</th><th>Total Value</th><th>Rating</th><th>On-Time %</th><th>Invoice Paid</th><th>Outstanding</th></tr></thead>
           <tbody>
             {rows.length===0 && <tr><td colSpan={9} className="text-center py-6 text-slate-400">Belum ada data</td></tr>}
-            {rows.map((v,i) => (
+            {pagedRows.map((v,i) => (
               <tr key={v.vendor_id} data-testid={`va-row-${v.vendor_id}`} className={v.blacklisted?"bg-red-50/40":""}>
-                <td className="font-mono text-xs">{i+1}</td>
+                <td className="font-mono text-xs">{(activePage - 1) * perPage + i + 1}</td>
                 <td className="font-semibold whitespace-nowrap">{v.vendor_name} {v.blacklisted && <span className="text-[10px] px-1 rounded bg-red-100 text-red-700 ml-1">BL</span>}</td>
                 <td>{v.po_count}</td>
                 <td>{v.po_completed}</td>
@@ -153,6 +169,7 @@ function VendorAnalytics() {
           </tbody>
         </table>
       </div>
+      <Pagination page={activePage} pages={pages} total={rows.length} onChange={setPage} perPage={perPage}/>
     </div>
   );
 }
