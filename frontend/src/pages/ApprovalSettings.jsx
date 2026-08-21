@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { Pencil, Plus, Trash2, Users } from "lucide-react";
 import api, { fmtIDR } from "@/lib/api";
@@ -27,6 +28,7 @@ const defaultForm = () => ({
   name: "",
   applies_to: "PR",
   department_id: null,
+  enforce_no_gap: false,
   levels: [defaultLevel(1)],
 });
 
@@ -34,6 +36,7 @@ const normalizeWorkflow = (workflow) => ({
   name: workflow?.name || "",
   applies_to: workflow?.applies_to || "PR",
   department_id: workflow?.department_id || null,
+  enforce_no_gap: Boolean(workflow?.enforce_no_gap),
   levels: (workflow?.levels || [defaultLevel(1)])
     .slice()
     .sort((left, right) => left.level - right.level)
@@ -53,6 +56,7 @@ export default function ApprovalSettings() {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(defaultForm());
   const [simulateAmount, setSimulateAmount] = useState(0);
+  const [dragLevelIndex, setDragLevelIndex] = useState(null);
 
   const load = () => Promise.all([
     api.get("/approval-workflows"),
@@ -111,6 +115,21 @@ export default function ApprovalSettings() {
     levels: current.levels.map((level, levelIndex) => levelIndex === index ? { ...level, [key]: value } : level),
   }));
 
+  const moveLevel = (fromIndex, toIndex) => {
+    if (fromIndex === toIndex || fromIndex == null || toIndex == null) {
+      return;
+    }
+    setForm((current) => {
+      const levels = current.levels.slice();
+      const [moved] = levels.splice(fromIndex, 1);
+      levels.splice(toIndex, 0, moved);
+      return {
+        ...current,
+        levels: levels.map((level, index) => ({ ...level, level: index + 1 })),
+      };
+    });
+  };
+
   const isDepartmentEligible = (user, departmentId) => {
     if (!departmentId) {
       return true;
@@ -148,6 +167,21 @@ export default function ApprovalSettings() {
       .sort((left, right) => left.level - right.level)
       .filter((level) => Number(level.min_amount || 0) <= Number(simulateAmount || 0) && Number(simulateAmount || 0) <= Number(level.max_amount || 0))
   ), [form.levels, simulateAmount]);
+
+  const gapWarnings = useMemo(() => {
+    const sortedLevels = form.levels.slice().sort((left, right) => left.level - right.level);
+    const warnings = [];
+    for (let index = 0; index < sortedLevels.length - 1; index += 1) {
+      const current = sortedLevels[index];
+      const nextLevel = sortedLevels[index + 1];
+      const expectedNextMin = Number(current.max_amount || 0) + 1;
+      const actualNextMin = Number(nextLevel.min_amount || 0);
+      if (actualNextMin > expectedNextMin) {
+        warnings.push(`Gap nominal antara L${current.level} (${fmtIDR(current.max_amount)}) dan L${nextLevel.level} (${fmtIDR(nextLevel.min_amount)})`);
+      }
+    }
+    return warnings;
+  }, [form.levels]);
 
   const levelPreview = (level) => {
     if (level.approver_id) {
@@ -255,7 +289,18 @@ export default function ApprovalSettings() {
               <div className="border border-slate-200 rounded p-3">
                 <div className="flex justify-between mb-2"><div className="label-tiny">Levels</div><Button size="sm" variant="outline" onClick={addLevel} data-testid="wf-add-level">+ Tambah Level</Button></div>
                 {form.levels.map((l,i) => (
-                  <div key={`level-${l.level}`} className="grid grid-cols-12 gap-2 mb-3 items-end rounded-md border border-slate-100 p-3">
+                  <div
+                    key={`level-${l.level}-${i}`}
+                    draggable
+                    onDragStart={() => setDragLevelIndex(i)}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={() => {
+                      moveLevel(dragLevelIndex, i);
+                      setDragLevelIndex(null);
+                    }}
+                    onDragEnd={() => setDragLevelIndex(null)}
+                    className={`grid grid-cols-12 gap-2 mb-3 items-end rounded-md border p-3 ${dragLevelIndex === i ? "border-slate-400 bg-slate-50" : "border-slate-100"}`}
+                  >
                     <div className="col-span-1 text-center font-mono text-slate-500 pb-2">L{l.level}</div>
                     <div className="col-span-2"><Label className="label-tiny">Role</Label>
                       <Select value={l.role} onValueChange={v=>changeLevelRole(i,v)}>
@@ -285,12 +330,27 @@ export default function ApprovalSettings() {
                     </div>
                   </div>
                 ))}
+                <div className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">
+                  <Checkbox
+                    id="wf-enforce-gap"
+                    checked={!!form.enforce_no_gap}
+                    onCheckedChange={(checked) => setForm((current) => ({ ...current, enforce_no_gap: !!checked }))}
+                  />
+                  <Label htmlFor="wf-enforce-gap" className="label-tiny cursor-pointer">Validasi gap nominal (opsional, strict saat simpan)</Label>
+                </div>
               </div>
               <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4">
                 <div className="label-tiny mb-2">Preview Workflow</div>
                 {overlapWarnings.length ? (
                   <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
                     {overlapWarnings.map((warning) => (
+                      <div key={warning}>{warning}</div>
+                    ))}
+                  </div>
+                ) : null}
+                {gapWarnings.length ? (
+                  <div className="mb-4 rounded-md border border-sky-200 bg-sky-50 p-3 text-xs text-sky-800">
+                    {gapWarnings.map((warning) => (
                       <div key={warning}>{warning}</div>
                     ))}
                   </div>

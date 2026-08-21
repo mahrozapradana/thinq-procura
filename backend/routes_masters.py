@@ -254,6 +254,19 @@ class VendorCreateIn(BaseModel):
     default_password: Optional[str] = "vendor123"
 
 
+class VendorUpdateIn(BaseModel):
+    company_name: Optional[str] = None
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    npwp: Optional[str] = None
+    address: Optional[str] = None
+    bank_name: Optional[str] = None
+    bank_account: Optional[str] = None
+    is_importer: Optional[bool] = None
+    code: Optional[str] = None
+
+
 @router.post("/vendors")
 async def create_vendor_manual(payload: VendorCreateIn, user=Depends(get_current_active_user)):
     """Procurement/admin manually create + auto-approve vendor + user account."""
@@ -301,6 +314,67 @@ async def create_vendor_manual(payload: VendorCreateIn, user=Depends(get_current
     await db.vendors.insert_one(doc)
     default_pw = payload.default_password if not existing else None
     return {**{k: v for k, v in doc.items() if k != "_id"}, "default_password": default_pw}
+
+
+@router.put("/vendors/{vid}")
+async def update_vendor_manual(vid: str, payload: VendorUpdateIn, user=Depends(get_current_active_user)):
+    if user["role"] not in ("admin", "procurement"):
+        raise HTTPException(403, "Not allowed")
+    db = get_db()
+    current = await db.vendors.find_one({"id": vid}, {"_id": 0})
+    if not current:
+        raise HTTPException(404, "Vendor not found")
+
+    updates = _vendor_updates_from_payload(payload)
+    if not updates:
+        return current
+
+    await _validate_vendor_email_update(db=db, vendor_id=vid, current=current, updates=updates)
+
+    await db.vendors.update_one({"id": vid}, {"$set": updates})
+
+    linked_user_id = current.get("user_id")
+    user_updates = _linked_user_updates(updates)
+
+    if linked_user_id and user_updates:
+        await db.users.update_one({"id": linked_user_id}, {"$set": user_updates})
+
+    return await db.vendors.find_one({"id": vid}, {"_id": 0})
+
+
+def _vendor_updates_from_payload(payload: VendorUpdateIn) -> dict:
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "email" in updates:
+        updates["email"] = updates["email"].lower()
+    return updates
+
+
+async def _validate_vendor_email_update(db, vendor_id: str, current: dict, updates: dict) -> None:
+    if "email" not in updates:
+        return
+    if updates["email"] == current.get("email"):
+        return
+
+    duplicate_vendor = await db.vendors.find_one({"email": updates["email"], "id": {"$ne": vendor_id}}, {"_id": 0, "id": 1})
+    if duplicate_vendor:
+        raise HTTPException(400, "Vendor dengan email tersebut sudah ada")
+
+    linked_user_id = current.get("user_id")
+    user_query = {"email": updates["email"]}
+    if linked_user_id:
+        user_query["id"] = {"$ne": linked_user_id}
+    user_collision = await db.users.find_one(user_query, {"_id": 0, "id": 1})
+    if user_collision:
+        raise HTTPException(400, "Email sudah dipakai user lain")
+
+
+def _linked_user_updates(updates: dict) -> dict:
+    user_updates = {}
+    if "email" in updates:
+        user_updates["email"] = updates["email"]
+    if "company_name" in updates:
+        user_updates["name"] = updates["company_name"]
+    return user_updates
 
 
 @router.post("/vendors/{vid}/approve")

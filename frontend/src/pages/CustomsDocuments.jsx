@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -19,9 +18,34 @@ const BC = [
   { key: "BC 4.0", label: "BC 4.0", color: "bg-yellow-500" },
 ];
 
+const BC_TO_KEY = {
+  "BC 2.0": "bc20",
+  "BC 2.3": "bc23",
+  "BC 2.6.2": "bc262",
+  "BC 2.7": "bc27",
+  "BC 4.0": "bc40",
+};
+
+function toMappingRows(data) {
+  if (!data || typeof data !== "object") {
+    return [];
+  }
+  const rows = [];
+  Object.entries(data).forEach(([section, fields]) => {
+    if (!fields || typeof fields !== "object") {
+      rows.push({ section, label: section, source: String(fields || "-") });
+      return;
+    }
+    Object.entries(fields).forEach(([label, source]) => {
+      const normalized = Array.isArray(source) ? source.join(", ") : String(source);
+      rows.push({ section, label, source: normalized });
+    });
+  });
+  return rows;
+}
+
 export default function CustomsDocuments() {
   const [params, setParams] = useSearchParams();
-  const nav = useNavigate();
   const bcFilter = params.get("bc") || "";
   const editId = params.get("edit");
   const [rows, setRows] = useState([]);
@@ -30,10 +54,66 @@ export default function CustomsDocuments() {
   const [page, setPage] = useState(1);
   const [detail, setDetail] = useState(null);
   const [tab, setTab] = useState("header");
+  const [pos, setPos] = useState([]);
+  const [invoices, setInvoices] = useState([]);
+  const [showMapping, setShowMapping] = useState(false);
+  const [mappingData, setMappingData] = useState(null);
+  const [mappingLoading, setMappingLoading] = useState(false);
 
-  const load = () => api.get(`/customs-docs?page=${page}&page_size=15&q=${encodeURIComponent(q)}${bcFilter?`&bc_type=${encodeURIComponent(bcFilter)}`:""}`).then(r=>{ setRows(r.data.items); setTotal(r.data.total); });
+  const load = () => {
+    const bcQuery = bcFilter ? `&bc_type=${encodeURIComponent(bcFilter)}` : "";
+    const query = `/customs-docs?page=${page}&page_size=15&q=${encodeURIComponent(q)}${bcQuery}`;
+    return api.get(query).then((r) => {
+      setRows(r.data.items);
+      setTotal(r.data.total);
+    });
+  };
   useEffect(()=>{ load(); },[page, q, bcFilter]);
   useEffect(()=>{ if(editId) api.get(`/customs-docs/${editId}`).then(r=>{ setDetail(r.data); setTab("header"); }); },[editId]);
+  useEffect(()=>{
+    api.get("/pos?page=1&page_size=300&po_type=BONDED")
+      .then((r)=>setPos(r.data?.items || []))
+      .catch(()=>setPos([]));
+  },[]);
+  useEffect(()=>{ api.get("/invoices").then(r=>setInvoices(r.data||[])).catch(()=>setInvoices([])); },[]);
+
+  const filteredInvoices = detail?.po_id
+    ? invoices.filter((inv) => inv.po_id === detail.po_id)
+    : invoices;
+
+  const openMapping = async () => {
+    if (mappingData) {
+      setShowMapping(true);
+      return;
+    }
+    setMappingLoading(true);
+    try {
+      const result = await api.get("/customs-docs/print-map");
+      setMappingData(result.data || {});
+      setShowMapping(true);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Gagal memuat mapping");
+    } finally {
+      setMappingLoading(false);
+    }
+  };
+
+  const generateFromPo = async () => {
+    if (!detail?.id || !detail?.po_id) {
+      toast.error("Pilih PO bonded terlebih dahulu");
+      return;
+    }
+    try {
+      const result = await api.post(`/customs-docs/${detail.id}/generate-from-po`, { po_id: detail.po_id });
+      setDetail(result.data);
+      toast.success("Header dan line item berhasil di-generate dari PO");
+      load();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Gagal generate dari PO");
+    }
+  };
+
+  const mappingRows = toMappingRows(mappingData);
 
   const newDoc = (bc) => {
     api.post("/customs-docs", { bc_type: bc }).then(r => { setDetail(r.data); setTab("header"); load(); });
@@ -58,7 +138,7 @@ export default function CustomsDocuments() {
       {/* BC tiles */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {BC.map(b => (
-          <button key={b.key} onClick={()=>newDoc(b.key)} data-testid={`bc-tile-${b.key.replace(/\s|\./g,'')}`}
+          <button type="button" key={b.key} onClick={()=>newDoc(b.key)} data-testid={`bc-tile-${b.key.replace(/\s|\./g,'')}`}
             className={`relative h-24 ${b.color} hover:brightness-110 rounded shadow-sm text-slate-900 flex flex-col`}>
             <span className="absolute top-2 left-3 text-xs font-semibold">{b.label}</span>
             <Cog size={40} className="m-auto"/>
@@ -94,7 +174,7 @@ export default function CustomsDocuments() {
                 <td className="text-xs">{r.supplier||"-"}</td>
                 <td className="font-mono text-xs">{r.currency} {(r.value||0).toLocaleString("id-ID")}</td>
                 <td><span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${r.status==="submitted"?"bg-emerald-100 text-emerald-700":"bg-slate-100"}`}>{r.status}</span></td>
-                <td className="text-right"><button onClick={()=>{ setDetail(r); setTab("header"); }} className="p-1 hover:bg-slate-100 rounded" data-testid={`customs-edit-${r.id}`}><Eye size={14}/></button></td>
+                <td className="text-right"><button type="button" onClick={()=>{ setDetail(r); setTab("header"); }} className="p-1 hover:bg-slate-100 rounded" data-testid={`customs-edit-${r.id}`}><Eye size={14}/></button></td>
               </tr>
             ))}
           </tbody>
@@ -117,8 +197,69 @@ export default function CustomsDocuments() {
                 </TabsList>
 
                 <TabsContent value="header">
+                  <div className="grid grid-cols-3 gap-3 mt-3 mb-3 rounded border border-slate-200 bg-slate-50 p-3">
+                    <div>
+                      <Label className="label-tiny">Link PO ID</Label>
+                      <Select
+                        value={detail.po_id || "__none"}
+                        onValueChange={(value)=>{
+                          if (value === "__none") {
+                            setDetail({ ...detail, po_id: null, invoice_id: null });
+                            return;
+                          }
+                          const nextInvoices = invoices.filter((inv) => inv.po_id === value);
+                          const keepCurrentInvoice = nextInvoices.some((inv) => inv.id === detail.invoice_id);
+                          setDetail({
+                            ...detail,
+                            po_id: value,
+                            invoice_id: keepCurrentInvoice ? detail.invoice_id : null,
+                          });
+                        }}
+                      >
+                        <SelectTrigger data-testid="ct-h-po-id"><SelectValue placeholder="Pilih PO Bonded"/></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none">Tidak ditautkan</SelectItem>
+                          {pos.map((po)=><SelectItem key={po.id} value={po.id}>{po.po_number || po.id}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <div className="mt-1 text-[11px] text-slate-500">Hanya menampilkan PO bonded.</div>
+                    </div>
+                    <div>
+                      <Label className="label-tiny">Link Invoice</Label>
+                      <Select
+                        value={detail.invoice_id || "__none"}
+                        onValueChange={(value)=>{
+                          if (value === "__none") {
+                            setDetail({...detail, invoice_id:null});
+                            return;
+                          }
+                          const inv = invoices.find((item)=>item.id === value);
+                          setDetail({
+                            ...detail,
+                            invoice_id: value,
+                            po_id: detail.po_id || inv?.po_id || "",
+                            invoice_no: detail.invoice_no || inv?.invoice_number || "",
+                            invoice_date: detail.invoice_date || (inv?.created_at ? String(inv.created_at).slice(0,10) : ""),
+                            value: Number(detail.value || inv?.amount || 0),
+                          });
+                        }}
+                      >
+                        <SelectTrigger data-testid="ct-h-invoice-id"><SelectValue placeholder="Pilih invoice"/></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none">Tidak ditautkan</SelectItem>
+                          {filteredInvoices.map((inv)=><SelectItem key={inv.id} value={inv.id}>{inv.invoice_number || inv.id} · PO {inv.po_id || "-"}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      {detail.po_id ? <div className="mt-1 text-[11px] text-slate-500">Invoice difilter berdasarkan PO terpilih.</div> : null}
+                    </div>
+                    <div>
+                      <Label className="label-tiny">Nomor Pengajuan</Label>
+                      <Input value={detail.nomor_pengajuan||""} onChange={e=>setDetail({...detail, nomor_pengajuan:e.target.value})} data-testid="ct-h-nomor-pengajuan"/>
+                    </div>
+                  </div>
                   <div className="grid grid-cols-3 gap-3 mt-3">
                     {[
+                      ["nomor_pendaftaran","Nomor Pendaftaran"],
                       ["car","CAR"], ["register_no","Register No"], ["register_date","Register Date",true],
                       ["kantor_pengawas","Kantor Pabean Pengawas"], ["kantor_bongkar","Kantor Pabean Bongkar"],
                       ["bl_no","BL No"], ["bl_date","BL Date",true],
@@ -129,18 +270,44 @@ export default function CustomsDocuments() {
                       ["kode_bendera","Kode Bendera"], ["tanggal_tiba","Tanggal Tiba",true],
                       ["tutup_pu","Tutup PU"], ["nomor_bc11","Nomor BC 1.1"], ["tanggal_bc11","Tanggal BC 1.1",true],
                       ["nomor_pos","Nomor POS"], ["sub_pos","Sub POS"],
-                      ["supplier","Supplier"], ["shipper","Shipper"], ["owner","Owner"],
+                      ["supplier","Supplier"], ["supplier_address","Alamat Supplier"], ["supplier_country","Negara Supplier"],
+                      ["shipper","Shipper"], ["owner","Owner"],
+                      ["importer_npwp","NPWP Importir"], ["importer_name","Nama Importir"], ["importer_address","Alamat Importir"],
+                      ["owner_npwp","NPWP Pemilik"], ["owner_name","Nama Pemilik"], ["owner_address","Alamat Pemilik"],
+                      ["no_izin_tpb","No Izin TPB"], ["nib","NIB"], ["fasilitas_impor","Fasilitas Impor"],
+                      ["surat_keputusan","Surat Keputusan"], ["lc_no","L/C No"],
+                      ["npwp_ppjk","NPWP PPJK"], ["nama_ppjk","Nama PPJK"], ["np_ppjk","NP PPJK"],
+                      ["invoice_no","Invoice No"], ["invoice_date","Invoice Date",true],
                       ["currency","Currency"], ["rate","Rate","num"], ["price_type","Price Type"],
+                      ["fob","FOB","num"], ["freight","Freight","num"], ["insurance_type","Insurance Type"], ["insurance_value","Insurance Value","num"],
+                      ["cif","CIF","num"], ["cif_idr","CIF IDR","num"],
                       ["value","Value","num"], ["value_added","Value Added","num"], ["discount","Discount","num"],
-                      ["freight","Freight","num"], ["insurance_type","Insurance Type"], ["insurance_value","Insurance Value","num"],
-                      ["kena_pajak","Kena Pajak"], ["bruto","Bruto","num"],
+                      ["kena_pajak","Kena Pajak"], ["bruto","Bruto","num"], ["netto","Netto","num"],
+                      ["jumlah_kemasan","Jumlah Kemasan"], ["jenis_kemasan","Jenis Kemasan"], ["merk_kemasan","Merk Kemasan"],
+                      ["bm_ditangguhkan","BM Ditangguhkan","num"], ["bmt_dibebaskan","BMT Dibebaskan","num"],
+                      ["cukai_tidak_dipungut","Cukai Tidak Dipungut","num"], ["ppn_tidak_dipungut","PPN Tidak Dipungut","num"],
+                      ["ppnbm_tidak_dipungut","PPnBM Tidak Dipungut","num"], ["pph_tidak_dipungut","PPh Tidak Dipungut","num"],
                       ["nama_penanda_tangan","Nama Penanda Tangan"], ["jabatan_penanda_tangan","Jabatan Penanda Tangan"],
-                    ].map(([k,label,type])=>(
-                      <div key={k}>
-                        <Label className="label-tiny">{label}</Label>
-                        <Input type={type===true?"date":(type==="num"?"number":"text")} value={detail[k]||""} onChange={e=>setDetail({...detail, [k]: type==="num"?parseFloat(e.target.value||0):e.target.value})} data-testid={`ct-h-${k}`}/>
-                      </div>
-                    ))}
+                    ].map(([k,label,type])=>{
+                      let inputType = "text";
+                      if (type === true) {
+                        inputType = "date";
+                      } else if (type === "num") {
+                        inputType = "number";
+                      }
+                      const nextValue = (event) => {
+                        if (type === "num") {
+                          return Number.parseFloat(event.target.value || 0);
+                        }
+                        return event.target.value;
+                      };
+                      return (
+                        <div key={k}>
+                          <Label className="label-tiny">{label}</Label>
+                          <Input type={inputType} value={detail[k]||""} onChange={e=>setDetail({...detail, [k]: nextValue(e)})} data-testid={`ct-h-${k}`}/>
+                        </div>
+                      );
+                    })}
                   </div>
                 </TabsContent>
 
@@ -176,7 +343,34 @@ export default function CustomsDocuments() {
                   <AuditTrail docId={detail.id}/>
                 </TabsContent>
               </Tabs>
+              {showMapping ? (
+                <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3">
+                  <div className="mb-2 text-xs font-semibold text-slate-700">Preview Mapping Print BC</div>
+                  <div className="max-h-64 overflow-auto rounded border border-slate-200 bg-white">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-100 sticky top-0">
+                        <tr>
+                          <th className="text-left px-2 py-1">Section</th>
+                          <th className="text-left px-2 py-1">Label</th>
+                          <th className="text-left px-2 py-1">Source Field</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {mappingRows.map((row, index)=>(
+                          <tr key={`${row.section}-${row.label}-${index}`} className="border-t border-slate-100">
+                            <td className="px-2 py-1 font-semibold text-slate-600">{row.section}</td>
+                            <td className="px-2 py-1">{row.label}</td>
+                            <td className="px-2 py-1 font-mono text-[11px] text-slate-700">{row.source}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : null}
                 <DialogFooter>
+                <Button variant="outline" onClick={generateFromPo} disabled={!detail?.po_id} data-testid="customs-generate-po">Generate from PO</Button>
+                <Button variant="outline" onClick={openMapping} disabled={mappingLoading} data-testid="customs-preview-map">{mappingLoading ? "Loading..." : "Preview Mapping"}</Button>
                 <Button variant="outline" onClick={async ()=>{
                   const t = localStorage.getItem("access_token");
                   const r = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/customs-docs/${detail.id}/print.pdf`, { credentials:"include", headers: t?{Authorization:`Bearer ${t}`}:{}});
@@ -199,18 +393,14 @@ export default function CustomsDocuments() {
 }
 
 function DetailTab({ detail, setDetail }) {
-  const [hs, setHs] = useState([]);
-  const [products, setProducts] = useState([]);
-  useEffect(()=>{ api.get("/hs-codes").then(r=>setHs(r.data)); api.get("/products").then(r=>setProducts(r.data)); },[]);
   const items = detail.items || [];
   const setItems = arr => setDetail({...detail, items: arr});
-  const addBlank = () => setItems([...items, { seri: items.length+1 }]);
   return (
     <div className="mt-3 space-y-2">
       <div className="grid grid-cols-4 gap-2">
         {["seri","kode_barang","deskripsi","merk","tipe","ukuran","volume","spf_lain","hs_code","kategori","qty","unit","conversion","qty_package","package","amount","unit_price","negara_asal","freight","asuransi","tarif_fasilitas_pdri","bmt","subcon_price","pph","ppn","tarif_fasilitas","bm_tarif","note","bruto","netto"].map(f=>(
           <div key={f}>
-            <Label className="label-tiny">{f.replace(/_/g," ")}</Label>
+            <Label className="label-tiny">{f.replaceAll("_"," ")}</Label>
             <Input value={detail[`_new_${f}`]||""} onChange={e=>setDetail({...detail, [`_new_${f}`]: e.target.value})} data-testid={`ct-item-${f}`}/>
           </div>
         ))}
@@ -219,6 +409,7 @@ function DetailTab({ detail, setDetail }) {
         const newItem = {};
         Object.keys(detail).filter(k=>k.startsWith("_new_")).forEach(k=>{ newItem[k.slice(5)] = detail[k]; });
         newItem.seri = items.length + 1;
+        newItem._row_key = `item-${Date.now()}-${items.length + 1}`;
         setItems([...items, newItem]);
         const cleared = {...detail}; Object.keys(cleared).filter(k=>k.startsWith("_new_")).forEach(k=>delete cleared[k]);
         setDetail(cleared);
@@ -229,13 +420,13 @@ function DetailTab({ detail, setDetail }) {
           <tbody>
             {items.length===0 && <tr><td colSpan={12} className="text-center py-4 text-slate-400">Belum ada item</td></tr>}
             {items.map((it,i)=>(
-              <tr key={i} data-testid={`ct-item-row-${i}`}>
+              <tr key={it._row_key || `${it.seri}-${it.kode_barang || "x"}-${it.hs_code || "x"}`} data-testid={`ct-item-row-${i}`}>
                 <td>{it.seri}</td><td className="font-mono text-xs">{it.kode_barang}</td>
                 <td className="text-xs">{it.deskripsi}</td><td>{it.hs_code}</td>
                 <td>{it.qty}</td><td>{it.unit}</td>
                 <td className="font-mono text-xs">{it.unit_price}</td><td className="font-mono text-xs">{it.amount}</td>
                 <td>{it.netto}</td><td>{it.bruto}</td><td className="text-xs">{it.note}</td>
-                <td className="text-right"><button onClick={()=>setItems(items.filter((_,idx)=>idx!==i))}><Trash2 size={12} className="text-red-500"/></button></td>
+                <td className="text-right"><button type="button" onClick={()=>setItems(items.filter((_,idx)=>idx!==i))}><Trash2 size={12} className="text-red-500"/></button></td>
               </tr>
             ))}
           </tbody>
@@ -247,7 +438,10 @@ function DetailTab({ detail, setDetail }) {
 
 function ListEditor({ rows, onChange, fields, testid }) {
   const [form, setForm] = useState({});
-  const add = () => { onChange([...rows, form]); setForm({}); };
+  const add = () => {
+    onChange([...rows, { ...form, _row_key: `row-${Date.now()}-${rows.length + 1}` }]);
+    setForm({});
+  };
   return (
     <div className="mt-3 space-y-2">
       <div className="grid grid-cols-3 gap-2">
@@ -264,9 +458,9 @@ function ListEditor({ rows, onChange, fields, testid }) {
           <tbody>
             {rows.length===0 && <tr><td colSpan={fields.length+1} className="text-center py-4 text-slate-400">-</td></tr>}
             {rows.map((r,i)=>(
-              <tr key={i}>
+              <tr key={r._row_key || `${r.nomor_dokumen || "row"}-${i}`}>
                 {fields.map(f=><td key={f.k} className="text-xs">{r[f.k]}</td>)}
-                <td className="text-right"><button onClick={()=>onChange(rows.filter((_,idx)=>idx!==i))}><Trash2 size={12} className="text-red-500"/></button></td>
+                <td className="text-right"><button type="button" onClick={()=>onChange(rows.filter((_,idx)=>idx!==i))}><Trash2 size={12} className="text-red-500"/></button></td>
               </tr>
             ))}
           </tbody>
@@ -285,7 +479,7 @@ function AuditTrail({ docId }) {
       <div className="text-xs text-slate-500">Riwayat perubahan dokumen (siap audit Bea Cukai).</div>
       {rows.length===0 && <div className="text-center text-slate-400 py-8 text-xs">Belum ada perubahan tercatat.</div>}
       {rows.map((r,i)=>(
-        <div key={i} className="border border-slate-200 rounded p-3 bg-slate-50" data-testid={`audit-row-${i}`}>
+        <div key={`${r.at || i}-${r.by || "x"}`} className="border border-slate-200 rounded p-3 bg-slate-50" data-testid={`audit-row-${i}`}>
           <div className="flex justify-between text-xs">
             <div><b>{r.by_name}</b> · <span className="uppercase tracking-wider text-slate-500">{r.action}</span></div>
             <div className="font-mono text-slate-500">{new Date(r.at).toLocaleString("id-ID")}</div>

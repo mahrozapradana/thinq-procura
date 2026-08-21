@@ -88,15 +88,36 @@ export default function PurchaseRequests() {
     return alloc;
   }, [form.items, deptBudgets]);
 
-  const addItem = () => setForm({...form, items: [...form.items, {product_id:"",qty:1,price:0}]});
-  const setItem = (i,k,v) => setForm({...form, items: form.items.map((it,idx)=>idx===i?{...it,[k]:v}:it)});
-  const rmItem = (i) => setForm({...form, items: form.items.filter((_,idx)=>idx!==i)});
+  const addItem = () => setForm((prev) => ({
+    ...prev,
+    items: [...prev.items, { product_id: "", qty: 1, price: 0 }],
+  }));
+
+  const setItem = (index, key, value) => setForm((prev) => ({
+    ...prev,
+    items: prev.items.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item),
+  }));
+
+  const setItemPatch = (index, patch) => setForm((prev) => ({
+    ...prev,
+    items: prev.items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item),
+  }));
+
+  const rmItem = (index) => setForm((prev) => ({
+    ...prev,
+    items: prev.items.filter((_, itemIndex) => itemIndex !== index),
+  }));
 
   const submit = async () => {
     try {
+      const missingProduct = form.items.some((item) => !item.product_id);
+      if (missingProduct) {
+        toast.error("Semua item PR wajib pilih produk");
+        return;
+      }
       const payload = { ...form, items: form.items.map(it => {
         const p = products.find(x=>x.id===it.product_id);
-        return { ...it, qty: parseFloat(it.qty), price: parseFloat(it.price), product_name: p?.name, hs_code: p?.hs_code_id };
+        return { ...it, qty: Number.parseFloat(it.qty), price: Number.parseFloat(it.price), product_name: p?.name, hs_code: p?.hs_code_id };
       }) };
       await api.post("/prs", payload);
       toast.success("PR dibuat"); setOpen(false); setForm({items:[],procurement_type:"DIRECT",is_bonded:false,attachments:[]}); load();
@@ -155,15 +176,18 @@ export default function PurchaseRequests() {
                   <div key={i} className="mb-2">
                     <div className="grid grid-cols-12 gap-2 items-end">
                       <div className="col-span-6">
-                        <Select value={it.product_id} onValueChange={v=>{
-                          const p = products.find(x=>x.id===v);
-                          setItem(i,"product_id",v);
-                          if(p) setItem(i,"price",p.default_price||0);
+                        <Select value={it.product_id} onValueChange={value=>{
+                          const product = products.find((item) => item.id === value);
+                          const patch = { product_id: value };
+                          if (product) {
+                            patch.price = product.default_price || 0;
+                          }
+                          setItemPatch(i, patch);
                           // Fetch verified cheapest for this product
-                          if (v && !verifiedHints[v]) {
-                            api.get(`/pricelists/cheapest?product_id=${v}&only_verified=true`)
-                              .then(r=>setVerifiedHints(prev=>({...prev, [v]: r.data})))
-                              .catch(()=>setVerifiedHints(prev=>({...prev, [v]: null})));
+                          if (value && !verifiedHints[value]) {
+                            api.get(`/pricelists/cheapest?product_id=${value}&only_verified=true`)
+                              .then(r=>setVerifiedHints(prev=>({...prev, [value]: r.data})))
+                              .catch(()=>setVerifiedHints(prev=>({...prev, [value]: null})));
                           }
                         }}>
                           <SelectTrigger data-testid={`pr-item-prod-${i}`}><SelectValue placeholder="Pilih produk"/></SelectTrigger>

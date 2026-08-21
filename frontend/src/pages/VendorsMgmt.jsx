@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Check, X, UserCheck, Star, Ban, Search, Plus, FileUp, Upload } from "lucide-react";
+import { Check, X, Star, Ban, Search, Plus, FileUp, Eye, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,7 @@ const STATUS = {
 };
 
 const PAGE_SIZE = 15;
+const DEFAULT_VENDOR_PASSWORD = "";
 
 export default function VendorsMgmt() {
   const [rows, setRows] = useState([]);
@@ -24,8 +25,11 @@ export default function VendorsMgmt() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
+  const [previewVendor, setPreviewVendor] = useState(null);
+  const [editingVendor, setEditingVendor] = useState(null);
+  const [editForm, setEditForm] = useState({});
   const [importing, setImporting] = useState(false);
-  const [form, setForm] = useState({ default_password: "vendor123", is_importer: false });
+  const [form, setForm] = useState({ default_password: DEFAULT_VENDOR_PASSWORD, is_importer: false });
 
   const load = () => api.get("/vendors").then(r=>setRows(r.data));
   useEffect(()=>{ load(); },[]);
@@ -34,8 +38,11 @@ export default function VendorsMgmt() {
     try {
       if (!form.company_name || !form.name || !form.email) return toast.error("Nama Perusahaan / Kontak / Email wajib");
       const r = await api.post("/vendors", form);
-      toast.success(`Vendor "${r.data.company_name}" dibuat${r.data.default_password?` — password: ${r.data.default_password}`:""}`);
-      setCreateOpen(false); setForm({ default_password: "vendor123", is_importer: false }); load();
+      const passwordInfo = r.data.default_password
+        ? `Password: ${r.data.default_password}`
+        : "Password tidak diubah (akun vendor sudah ada)";
+      toast.success(`Vendor "${r.data.company_name}" dibuat. ${passwordInfo}`);
+      setCreateOpen(false); setForm({ default_password: DEFAULT_VENDOR_PASSWORD, is_importer: false }); load();
     } catch(e){ toast.error(e.response?.data?.detail || "Gagal"); }
   };
   const importCsv = async (file) => {
@@ -70,6 +77,55 @@ export default function VendorsMgmt() {
     } catch(e){ toast.error(e.response?.data?.detail); }
   };
   const reject = async (id) => { await api.post(`/vendors/${id}/reject`); toast.success("Vendor ditolak"); load(); };
+
+  const openPreview = async (vendorId) => {
+    try {
+      const result = await api.get(`/vendors/${vendorId}`);
+      setPreviewVendor(result.data);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Gagal memuat detail vendor");
+    }
+  };
+
+  const openEdit = async (vendorId) => {
+    try {
+      const result = await api.get(`/vendors/${vendorId}`);
+      setEditingVendor(result.data);
+      setEditForm({
+        company_name: result.data.company_name || "",
+        code: result.data.code || "",
+        name: result.data.name || "",
+        email: result.data.email || "",
+        phone: result.data.phone || "",
+        npwp: result.data.npwp || "",
+        address: result.data.address || "",
+        bank_name: result.data.bank_name || "",
+        bank_account: result.data.bank_account || "",
+        is_importer: !!result.data.is_importer,
+      });
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Gagal memuat vendor untuk edit");
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!editingVendor) {
+      return;
+    }
+    try {
+      const payload = {
+        ...editForm,
+        email: (editForm.email || "").trim().toLowerCase(),
+      };
+      await api.put(`/vendors/${editingVendor.id}`, payload);
+      toast.success("Data vendor diperbarui");
+      setEditingVendor(null);
+      setEditForm({});
+      load();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Gagal update vendor");
+    }
+  };
   const toggleBlacklist = async () => {
     if (!blacklisting) return;
     const target = !blacklisting.blacklisted;
@@ -118,7 +174,7 @@ export default function VendorsMgmt() {
               <input type="checkbox" checked={!!form.is_importer} onChange={e=>setForm({...form, is_importer:e.target.checked})} data-testid="vc-importer" id="vc-imp"/>
               <label htmlFor="vc-imp" className="text-xs cursor-pointer">Importir / bisa terima PO bonded</label>
             </div>
-            <div className="col-span-2"><Label className="label-tiny">Password Default Vendor Login</Label><Input value={form.default_password||"vendor123"} onChange={e=>setForm({...form, default_password:e.target.value})} data-testid="vc-pw"/></div>
+            <div className="col-span-2"><Label className="label-tiny">Password Default Vendor Login (opsional)</Label><Input value={form.default_password||""} placeholder="Kosongkan untuk default backend" onChange={e=>setForm({...form, default_password:e.target.value})} data-testid="vc-pw"/></div>
           </div>
           <DialogFooter><Button onClick={createManual} data-testid="vc-save">Simpan Vendor</Button></DialogFooter>
         </DialogContent>
@@ -153,12 +209,18 @@ export default function VendorsMgmt() {
                     {bl ? <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-700 flex items-center gap-1 w-fit"><Ban size={10}/> {v.blacklisted ? "MANUAL" : "AUTO<2★"}</span> : <span className="text-xs text-emerald-600">Aktif</span>}
                   </td>
                   <td className="text-right whitespace-nowrap">
+                    <button type="button" onClick={()=>openPreview(v.id)} className="p-1 hover:bg-slate-100 rounded" data-testid={`vendor-preview-${v.id}`}>
+                      <Eye size={14} className="text-slate-600"/>
+                    </button>
+                    <button type="button" onClick={()=>openEdit(v.id)} className="p-1 hover:bg-blue-50 rounded" data-testid={`vendor-edit-${v.id}`}>
+                      <Pencil size={14} className="text-blue-600"/>
+                    </button>
                     {v.status==="pending_approval" && <>
-                      <button onClick={()=>{setApproving(v); setPw("vendor123");}} className="p-1 hover:bg-emerald-50 rounded" data-testid={`vendor-approve-${v.id}`}><Check size={14} className="text-emerald-600"/></button>
-                      <button onClick={()=>reject(v.id)} className="p-1 hover:bg-red-50 rounded" data-testid={`vendor-reject-${v.id}`}><X size={14} className="text-red-600"/></button>
+                      <button type="button" onClick={()=>{setApproving(v); setPw("vendor123");}} className="p-1 hover:bg-emerald-50 rounded" data-testid={`vendor-approve-${v.id}`}><Check size={14} className="text-emerald-600"/></button>
+                      <button type="button" onClick={()=>reject(v.id)} className="p-1 hover:bg-red-50 rounded" data-testid={`vendor-reject-${v.id}`}><X size={14} className="text-red-600"/></button>
                     </>}
                     {v.status==="approved" && (
-                      <button onClick={()=>setBlacklisting(v)} className={`p-1 rounded ${v.blacklisted ? "hover:bg-emerald-50" : "hover:bg-red-50"}`} data-testid={`vendor-blacklist-${v.id}`}>
+                      <button type="button" onClick={()=>setBlacklisting(v)} className={`p-1 rounded ${v.blacklisted ? "hover:bg-emerald-50" : "hover:bg-red-50"}`} data-testid={`vendor-blacklist-${v.id}`}>
                         <Ban size={14} className={v.blacklisted ? "text-emerald-600" : "text-red-600"}/>
                       </button>
                     )}
@@ -180,6 +242,53 @@ export default function VendorsMgmt() {
             </div>
           )}
           <DialogFooter><Button onClick={approve} data-testid="vendor-approve-confirm">Setujui & Buat Akun</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!previewVendor} onOpenChange={(next)=>!next && setPreviewVendor(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Preview Vendor</DialogTitle></DialogHeader>
+          {previewVendor ? (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div><Label className="label-tiny">Perusahaan</Label><div>{previewVendor.company_name || "-"}</div></div>
+              <div><Label className="label-tiny">Kode</Label><div className="font-mono text-xs">{previewVendor.code || "-"}</div></div>
+              <div><Label className="label-tiny">Kontak</Label><div>{previewVendor.name || "-"}</div></div>
+              <div><Label className="label-tiny">Email</Label><div>{previewVendor.email || "-"}</div></div>
+              <div><Label className="label-tiny">Telepon</Label><div>{previewVendor.phone || "-"}</div></div>
+              <div><Label className="label-tiny">NPWP</Label><div>{previewVendor.npwp || "-"}</div></div>
+              <div className="col-span-2"><Label className="label-tiny">Alamat</Label><div>{previewVendor.address || "-"}</div></div>
+              <div><Label className="label-tiny">Bank</Label><div>{previewVendor.bank_name || "-"}</div></div>
+              <div><Label className="label-tiny">No Rekening</Label><div>{previewVendor.bank_account || "-"}</div></div>
+              <div><Label className="label-tiny">Importir</Label><div>{previewVendor.is_importer ? "Ya" : "Tidak"}</div></div>
+              <div><Label className="label-tiny">Status</Label><div>{previewVendor.status || "-"}</div></div>
+            </div>
+          ) : null}
+          <DialogFooter><Button variant="outline" onClick={()=>setPreviewVendor(null)}>Tutup</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editingVendor} onOpenChange={(next)=>!next && setEditingVendor(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Edit Vendor</DialogTitle></DialogHeader>
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label className="label-tiny">Nama Perusahaan *</Label><Input value={editForm.company_name || ""} onChange={(event)=>setEditForm({...editForm, company_name: event.target.value})} /></div>
+            <div><Label className="label-tiny">Kode Vendor</Label><Input value={editForm.code || ""} onChange={(event)=>setEditForm({...editForm, code: event.target.value})} /></div>
+            <div><Label className="label-tiny">Nama Kontak *</Label><Input value={editForm.name || ""} onChange={(event)=>setEditForm({...editForm, name: event.target.value})} /></div>
+            <div><Label className="label-tiny">Email *</Label><Input type="email" value={editForm.email || ""} onChange={(event)=>setEditForm({...editForm, email: event.target.value})} /></div>
+            <div><Label className="label-tiny">Telepon</Label><Input value={editForm.phone || ""} onChange={(event)=>setEditForm({...editForm, phone: event.target.value})} /></div>
+            <div><Label className="label-tiny">NPWP</Label><Input value={editForm.npwp || ""} onChange={(event)=>setEditForm({...editForm, npwp: event.target.value})} /></div>
+            <div className="col-span-2"><Label className="label-tiny">Alamat</Label><Input value={editForm.address || ""} onChange={(event)=>setEditForm({...editForm, address: event.target.value})} /></div>
+            <div><Label className="label-tiny">Nama Bank</Label><Input value={editForm.bank_name || ""} onChange={(event)=>setEditForm({...editForm, bank_name: event.target.value})} /></div>
+            <div><Label className="label-tiny">No Rekening</Label><Input value={editForm.bank_account || ""} onChange={(event)=>setEditForm({...editForm, bank_account: event.target.value})} /></div>
+            <div className="col-span-2 flex items-center gap-2">
+              <input type="checkbox" id="ve-importer" checked={!!editForm.is_importer} onChange={(event)=>setEditForm({...editForm, is_importer: event.target.checked})} />
+              <label htmlFor="ve-importer" className="text-xs cursor-pointer">Importir / bisa terima PO bonded</label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={()=>setEditingVendor(null)}>Batal</Button>
+            <Button onClick={saveEdit} data-testid="vendor-edit-save">Simpan Perubahan</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -28,6 +28,7 @@ class ApprovalWorkflowIn(BaseModel):
     name: str
     applies_to: str  # "PR" | "PO" | "BUDGET"
     department_id: Optional[str] = None
+    enforce_no_gap: bool = False
     levels: List[ApprovalLevelIn]
 
 
@@ -71,6 +72,19 @@ async def _validate_workflow_payload(db, payload: ApprovalWorkflowIn) -> None:
                     f"Range nominal overlap antara L{level.level} dan L{next_level.level}",
                 )
 
+    if payload.enforce_no_gap and len(normalized_levels) > 1:
+        for index in range(len(normalized_levels) - 1):
+            current = normalized_levels[index]
+            next_level = normalized_levels[index + 1]
+            expected_next_min = float(current.max_amount) + 1
+            actual_next_min = float(next_level.min_amount)
+            if actual_next_min > expected_next_min:
+                raise HTTPException(
+                    400,
+                    f"Gap nominal terdeteksi antara L{current.level} dan L{next_level.level}",
+                )
+
+    for level in normalized_levels:
         if not level.approver_id:
             continue
 
@@ -556,6 +570,8 @@ async def create_po(payload: POCreateIn, user=Depends(get_current_active_user)):
     total = 0.0
     for pr in prs:
         for it in pr["items"]:
+            if not it.get("product_id"):
+                raise HTTPException(400, f"PR {pr.get('pr_number')} memiliki item tanpa produk terpilih")
             merged_items.append({**it, "pr_id": pr["id"], "pr_number": pr["pr_number"]})
             total += it["subtotal"]
 
