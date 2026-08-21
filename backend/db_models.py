@@ -6,17 +6,19 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from motor.motor_asyncio import AsyncIOMotorClient
+from pg_mongo_adapter import AsyncPGDatabase, PostgresMongoAdapter
 
-_client: Optional[AsyncIOMotorClient] = None
-_db = None
+_adapter: Optional[PostgresMongoAdapter] = None
+_db: Optional[AsyncPGDatabase] = None
 
 
 def get_db():
-    global _client, _db
+    global _adapter, _db
     if _db is None:
-        _client = AsyncIOMotorClient(os.environ["MONGO_URL"])
-        _db = _client[os.environ["DB_NAME"]]
+        if os.environ.get("USE_LEGACY_MONGO", "false").lower() == "true":
+            raise RuntimeError("Legacy Mongo runtime is disabled. Use PostgreSQL adapter and unset USE_LEGACY_MONGO.")
+        _adapter = PostgresMongoAdapter()
+        _db = _adapter.get_db()
     return _db
 
 

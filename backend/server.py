@@ -54,6 +54,175 @@ logging.basicConfig(
 )
 logger = logging.getLogger("epr")
 
+ASCENDING = 1
+DESCENDING = -1
+
+
+INDEX_SPECS = {
+    "users": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("email", ASCENDING)], "unique": True},
+        {"keys": [("role", ASCENDING), ("status", ASCENDING)]},
+        {"keys": [("vendor_id", ASCENDING), ("role", ASCENDING)]},
+    ],
+    "vendors": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("email", ASCENDING)]},
+        {"keys": [("code", ASCENDING)]},
+        {"keys": [("status", ASCENDING)]},
+        {"keys": [("is_blacklisted", ASCENDING), ("status", ASCENDING)]},
+    ],
+    "departments": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("name", ASCENDING)]},
+    ],
+    "categories": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("name", ASCENDING)]},
+    ],
+    "hs_codes": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("code", ASCENDING)]},
+    ],
+    "products": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("code", ASCENDING)]},
+        {"keys": [("category_id", ASCENDING)]},
+    ],
+    "vendor_pricelists": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("vendor_id", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("product_id", ASCENDING), ("verified", DESCENDING), ("price", ASCENDING)]},
+    ],
+    "approval_workflows": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("applies_to", ASCENDING), ("department_id", ASCENDING)]},
+    ],
+    "budgets": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("status", ASCENDING)]},
+        {"keys": [("period", ASCENDING), ("department_id", ASCENDING), ("product_id", ASCENDING)]},
+        {"keys": [("created_at", DESCENDING)]},
+    ],
+    "prs": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("pr_number", ASCENDING)], "unique": True},
+        {"keys": [("requester_id", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("department_id", ASCENDING), ("status", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("preferred_vendor_id", ASCENDING)]},
+        {"keys": [("created_at", DESCENDING)]},
+    ],
+    "pos": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("po_number", ASCENDING)], "unique": True},
+        {"keys": [("vendor_id", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("status", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("po_type", ASCENDING), ("status", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("assigned_pic_id", ASCENDING), ("status", ASCENDING)]},
+        {"keys": [("shipping_status", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("invoice_status", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("created_by", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("created_at", DESCENDING)]},
+    ],
+    "tenders": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("tender_number", ASCENDING)], "unique": True},
+        {"keys": [("status", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("deadline", ASCENDING), ("status", ASCENDING)]},
+        {"keys": [("awarded_vendor_id", ASCENDING)]},
+    ],
+    "goods_receipts": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("receipt_number", ASCENDING)], "unique": True},
+        {"keys": [("po_id", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("customs_doc_id", ASCENDING)]},
+        {"keys": [("warehouse_id", ASCENDING), ("location_id", ASCENDING)]},
+        {"keys": [("created_at", DESCENDING)]},
+    ],
+    "goods_returns": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("return_number", ASCENDING)], "unique": True},
+        {"keys": [("receipt_id", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("created_at", DESCENDING)]},
+    ],
+    "warehouses": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("is_bonded", ASCENDING)]},
+    ],
+    "locations": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("warehouse_id", ASCENDING)]},
+        {"keys": [("is_bonded_zone", ASCENDING)]},
+    ],
+    "customs_docs": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("doc_number", ASCENDING)]},
+        {"keys": [("status", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("po_id", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("vendor_id", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("created_at", DESCENDING)]},
+    ],
+    "bc_audit": [
+        {"keys": [("customs_doc_id", ASCENDING), ("created_at", DESCENDING)]},
+    ],
+    "taxes": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("code", ASCENDING)], "unique": True},
+        {"keys": [("tax_type", ASCENDING)]},
+    ],
+    "notifications": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("user_id", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("user_id", ASCENDING), ("is_read", ASCENDING)]},
+        {"keys": [("type", ASCENDING), ("created_at", DESCENDING)]},
+    ],
+    "po_messages": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("po_id", ASCENDING), ("created_at", ASCENDING)]},
+        {"keys": [("sender_id", ASCENDING), ("created_at", DESCENDING)]},
+    ],
+    "shipments": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("shipment_number", ASCENDING)], "unique": True},
+        {"keys": [("po_id", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("vendor_id", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("status", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("tracking_number", ASCENDING)]},
+    ],
+    "invoices": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("invoice_number", ASCENDING)], "unique": True},
+        {"keys": [("po_id", ASCENDING), ("status", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("vendor_id", ASCENDING), ("status", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("status", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("due_date", ASCENDING), ("status", ASCENDING)]},
+        {"keys": [("created_at", DESCENDING)]},
+    ],
+    "ls_documents": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+        {"keys": [("vendor_id", ASCENDING), ("created_at", DESCENDING)]},
+        {"keys": [("po_id", ASCENDING)]},
+        {"keys": [("reference_number", ASCENDING)]},
+        {"keys": [("status", ASCENDING), ("created_at", DESCENDING)]},
+    ],
+    "company_settings": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+    ],
+    "odoo_settings": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+    ],
+    "notification_settings": [
+        {"keys": [("id", ASCENDING)], "unique": True},
+    ],
+}
+
+
+async def ensure_indexes(db):
+    for collection_name, specs in INDEX_SPECS.items():
+        collection = db[collection_name]
+        for spec in specs:
+            await collection.create_index(spec["keys"], unique=spec.get("unique", False))
+
 
 app = FastAPI(title="E-Procurement API")
 
@@ -195,10 +364,7 @@ async def startup_seed():
                 {"email": admin_email},
                 {"$set": {"password_hash": hash_password(admin_password)}},
             )
-    await db.users.create_index("email", unique=True)
-    await db.vendors.create_index("email")
-    await db.prs.create_index("pr_number")
-    await db.pos.create_index("po_number")
+    await ensure_indexes(db)
     # Seed default company settings if missing
     if not await db.company_settings.find_one({"id": "singleton-company"}):
         await db.company_settings.insert_one({

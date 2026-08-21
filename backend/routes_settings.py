@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from auth_utils import get_current_active_user
 from db_models import get_db, new_id, now_iso
 from odoo_client import sync_products_to_odoo, sync_vendors_to_odoo, sync_pos_to_odoo, test_odoo
+from seed_manufacturing_data import run_seed as run_manufacturing_seed
 
 router = APIRouter(prefix="/api")
 
@@ -212,3 +213,16 @@ async def test_email(payload: TestEmailIn, user=Depends(get_current_active_user)
         "<p>Test dari Procura E-Procurement. Jika Anda menerima ini, konfigurasi SMTP sudah benar.</p>",
     )
     return {"ok": ok, "message": "Email terkirim" if ok else "Gagal / SMTP belum enabled. Cek log backend."}
+
+
+@router.post("/admin/seed/manufacturing")
+async def seed_manufacturing_data(user=Depends(get_current_active_user)):
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin only")
+
+    summary = await run_manufacturing_seed()
+    return {
+        "ok": True,
+        "message": "Manufacturing seed executed",
+        "summary": summary,
+    }

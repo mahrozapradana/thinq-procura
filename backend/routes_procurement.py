@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from auth_utils import get_current_active_user
 from db_models import get_db, new_id, now_iso, clean, gen_number
+from native_pg_repositories import PONativeRepository, PRNativeRepository
 from notifications import notify_pending_approval
 
 router = APIRouter(prefix="/api")
@@ -36,11 +37,62 @@ async def list_workflows(user=Depends(get_current_active_user)):
     return await db.approval_workflows.find({}, {"_id": 0}).to_list(1000)
 
 
+@router.get("/approval-workflow-users")
+async def list_workflow_users(user=Depends(get_current_active_user)):
+    if user["role"] not in ("admin", "procurement"):
+        raise HTTPException(403, "Not allowed")
+    db = get_db()
+    return await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
+
+
+async def _validate_workflow_payload(db, payload: ApprovalWorkflowIn) -> None:
+    if not payload.levels:
+        raise HTTPException(400, "Workflow harus memiliki minimal satu level")
+
+    normalized_levels = sorted(payload.levels, key=lambda level: level.level)
+    seen_levels: set[int] = set()
+    for index, level in enumerate(normalized_levels):
+        if level.level in seen_levels:
+            raise HTTPException(400, f"Duplicate level pada workflow: L{level.level}")
+        seen_levels.add(level.level)
+
+        if float(level.min_amount) > float(level.max_amount):
+            raise HTTPException(400, f"Min amount tidak boleh lebih besar dari max amount pada L{level.level}")
+
+        for next_level in normalized_levels[index + 1:]:
+            current_min = float(level.min_amount)
+            current_max = float(level.max_amount)
+            next_min = float(next_level.min_amount)
+            next_max = float(next_level.max_amount)
+            overlaps = current_min <= next_max and next_min <= current_max
+            if overlaps:
+                raise HTTPException(
+                    400,
+                    f"Range nominal overlap antara L{level.level} dan L{next_level.level}",
+                )
+
+        if not level.approver_id:
+            continue
+
+        approver = await db.users.find_one(
+            {"id": level.approver_id, "status": "active"},
+            {"_id": 0, "id": 1, "name": 1, "role": 1},
+        )
+        if not approver:
+            raise HTTPException(400, f"Approver spesifik pada L{level.level} tidak ditemukan atau tidak aktif")
+        if approver.get("role") != level.role:
+            raise HTTPException(
+                400,
+                f"Approver {approver.get('name') or approver['id']} harus memiliki role {level.role} untuk L{level.level}",
+            )
+
+
 @router.post("/approval-workflows")
 async def create_workflow(payload: ApprovalWorkflowIn, user=Depends(get_current_active_user)):
     if user["role"] not in ("admin", "procurement"):
         raise HTTPException(403, "Not allowed")
     db = get_db()
+    await _validate_workflow_payload(db, payload)
     doc = {"id": new_id(), "created_at": now_iso(), **payload.model_dump()}
     await db.approval_workflows.insert_one(doc)
     return clean(doc)
@@ -48,13 +100,18 @@ async def create_workflow(payload: ApprovalWorkflowIn, user=Depends(get_current_
 
 @router.put("/approval-workflows/{wid}")
 async def update_workflow(wid: str, payload: ApprovalWorkflowIn, user=Depends(get_current_active_user)):
+    if user["role"] not in ("admin", "procurement"):
+        raise HTTPException(403, "Not allowed")
     db = get_db()
+    await _validate_workflow_payload(db, payload)
     await db.approval_workflows.update_one({"id": wid}, {"$set": payload.model_dump()})
     return await db.approval_workflows.find_one({"id": wid}, {"_id": 0})
 
 
 @router.delete("/approval-workflows/{wid}")
 async def delete_workflow(wid: str, user=Depends(get_current_active_user)):
+    if user["role"] not in ("admin", "procurement"):
+        raise HTTPException(403, "Not allowed")
     db = get_db()
     await db.approval_workflows.delete_one({"id": wid})
     return {"ok": True}
@@ -282,6 +339,22 @@ class PRIn(BaseModel):
     preferred_vendor_id: Optional[str] = None  # rekomendasi vendor dari requester
 
 
+async def _resolve_pr_bonded_flag(db, items: list[dict]) -> bool:
+    product_ids = [it.get("product_id") for it in items if it.get("product_id")]
+    products = await db.products.find({"id": {"$in": product_ids}}, {"_id": 0, "id": 1, "is_bonded": 1, "name": 1}).to_list(len(product_ids) or 1)
+    products_by_id = {product["id"]: product for product in products}
+
+    missing_ids = [product_id for product_id in product_ids if product_id not in products_by_id]
+    if missing_ids:
+        raise HTTPException(400, f"Produk tidak ditemukan untuk PR: {', '.join(missing_ids)}")
+
+    bonded_flags = {bool(products_by_id[product_id].get("is_bonded")) for product_id in product_ids}
+    if len(bonded_flags) > 1:
+        raise HTTPException(400, "PR tidak boleh mencampur product bonded dan non-bonded")
+
+    return bonded_flags.pop() if bonded_flags else False
+
+
 @router.get("/prs")
 async def list_prs(
     q: Optional[str] = None,
@@ -291,25 +364,16 @@ async def list_prs(
     page_size: int = 20,
     user=Depends(get_current_active_user),
 ):
-    db = get_db()
-    query: dict = {}
-    if user["role"] == "requester":
-        query["requester_id"] = user["id"]
-    if status:
-        query["status"] = status
-    if department_id:
-        query["department_id"] = department_id
-    if q:
-        query["$or"] = [
-            {"pr_number": {"$regex": q, "$options": "i"}},
-            {"requester_name": {"$regex": q, "$options": "i"}},
-            {"notes": {"$regex": q, "$options": "i"}},
-        ]
-    total = await db.prs.count_documents(query)
-    page = max(page, 1); page_size = min(max(page_size, 1), 100)
-    skip = (page - 1) * page_size
-    items = await db.prs.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(page_size).to_list(page_size)
-    return {"items": items, "total": total, "page": page, "page_size": page_size, "pages": (total + page_size - 1) // page_size}
+    repo = PRNativeRepository()
+    requester_id = user["id"] if user["role"] == "requester" else None
+    return repo.list_page(
+        requester_id=requester_id,
+        status=status,
+        department_id=department_id,
+        page=page,
+        page_size=page_size,
+        search=q,
+    )
 
 
 @router.get("/prs/{pid}")
@@ -325,6 +389,7 @@ async def get_pr(pid: str, user=Depends(get_current_active_user)):
 async def create_pr(payload: PRIn, user=Depends(get_current_active_user)):
     db = get_db()
     items = [{**i.model_dump(), "subtotal": i.qty * i.price} for i in payload.items]
+    resolved_is_bonded = await _resolve_pr_bonded_flag(db, items)
     total = sum(i["subtotal"] for i in items)
 
     # Per-item budget check
@@ -344,7 +409,7 @@ async def create_pr(payload: PRIn, user=Depends(get_current_active_user)):
         "total": total,
         "currency": "IDR",
         "procurement_type": payload.procurement_type,
-        "is_bonded": payload.is_bonded,
+        "is_bonded": resolved_is_bonded,
         "notes": payload.notes,
         "attachments": payload.attachments,
         "preferred_vendor_id": payload.preferred_vendor_id,
@@ -413,26 +478,18 @@ async def list_pos(
     page_size: int = 20,
     user=Depends(get_current_active_user),
 ):
-    db = get_db()
-    query: dict = {}
-    if user["role"] == "vendor":
-        query["vendor_id"] = user.get("vendor_id")
-        if user.get("is_pic"):
-            query["assigned_pic_id"] = user["id"]
-    if status:
-        query["status"] = status
-    if po_type:
-        query["po_type"] = po_type
-    if q:
-        query["$or"] = [
-            {"po_number": {"$regex": q, "$options": "i"}},
-            {"notes": {"$regex": q, "$options": "i"}},
-        ]
-    total = await db.pos.count_documents(query)
-    page = max(page, 1); page_size = min(max(page_size, 1), 100)
-    skip = (page - 1) * page_size
-    items = await db.pos.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(page_size).to_list(page_size)
-    return {"items": items, "total": total, "page": page, "page_size": page_size, "pages": (total + page_size - 1) // page_size}
+    repo = PONativeRepository()
+    vendor_id = user.get("vendor_id") if user["role"] == "vendor" else None
+    assigned_pic_id = user["id"] if user["role"] == "vendor" and user.get("is_pic") else None
+    return repo.list_page(
+        vendor_id=vendor_id,
+        assigned_pic_id=assigned_pic_id,
+        status=status,
+        po_type=po_type,
+        page=page,
+        page_size=page_size,
+        search=q,
+    )
 
 
 @router.post("/prs/check-duplicate")
@@ -480,9 +537,21 @@ async def create_po(payload: POCreateIn, user=Depends(get_current_active_user)):
     if user["role"] not in ("admin", "procurement"):
         raise HTTPException(403, "Not allowed")
     db = get_db()
+    po_type = str(payload.po_type or "LOCAL").upper()
+    if po_type not in ("LOCAL", "BONDED"):
+        raise HTTPException(400, "po_type harus LOCAL atau BONDED")
+
     prs = await db.prs.find({"id": {"$in": payload.pr_ids}, "status": "approved"}).to_list(1000)
     if len(prs) != len(payload.pr_ids):
         raise HTTPException(400, "Some PRs are not approved or not found")
+    pr_bonded_flags = {bool(pr.get("is_bonded")) for pr in prs}
+    if len(pr_bonded_flags) > 1:
+        raise HTTPException(400, "PR bonded dan non-bonded tidak boleh digabung dalam satu PO")
+    if po_type == "BONDED" and False in pr_bonded_flags:
+        raise HTTPException(400, "PO BONDED hanya bisa dibuat dari PR bonded")
+    if po_type == "LOCAL" and True in pr_bonded_flags:
+        raise HTTPException(400, "PO LOCAL tidak bisa dibuat dari PR bonded")
+
     merged_items: list = []
     total = 0.0
     for pr in prs:
@@ -510,7 +579,7 @@ async def create_po(payload: POCreateIn, user=Depends(get_current_active_user)):
     doc = {
         "id": new_id(),
         "po_number": gen_number("PO"),
-        "po_type": payload.po_type,
+        "po_type": po_type,
         "vendor_id": payload.vendor_id,
         "vendor_code": vendor_doc.get("code") or payload.vendor_id[:8],
         "vendor_name": vendor_doc.get("company_name"),

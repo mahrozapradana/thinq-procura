@@ -1,0 +1,8 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# PostgreSQL logical backup setiap hari jam 01:30
+30 1 * * * cd /opt/thinq-procura && ENV_FILE=.env.production ./ops/production/backup-postgres.sh >> /var/log/thinq-procura-backup.log 2>&1
+
+# Health check stack setiap 10 menit
+*/10 * * * * cd /opt/thinq-procura && ENV_FILE=.env.production ./ops/production/healthcheck-prod.sh >> /var/log/thinq-procura-healthcheck.log 2>&1

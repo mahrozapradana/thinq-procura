@@ -14,7 +14,7 @@ from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 
 from auth_utils import get_current_active_user
-from db_models import get_db
+from native_pg_repositories import ReportingNativeRepository
 
 router = APIRouter(prefix="/api/reports")
 
@@ -70,80 +70,61 @@ def _fmt(n):
         return str(n)
 
 
-async def _pr_data(db):
-    prs = await db.prs.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
-    depts = {d["id"]: d["name"] for d in await db.departments.find({}, {"_id": 0}).to_list(500)}
+def _pr_data():
+    repo = ReportingNativeRepository()
+    prs = repo.pr_report_rows(2000)
     headers = ["No PR", "Tanggal", "Requester", "Department", "Type", "Bonded", "Status", "Total (IDR)", "Warehouse"]
-    rows = [[
-        p.get("pr_number"), (p.get("created_at") or "")[:10], p.get("requester_name"),
-        depts.get(p.get("department_id"), "-"), p.get("procurement_type"),
-        "Yes" if p.get("is_bonded") else "No", p.get("status"), _fmt(p.get("total")), p.get("warehouse_status") or "-",
-    ] for p in prs]
+    rows = [[p[0], p[1], p[2], p[3], p[4], p[5], p[6], _fmt(p[7]), p[8]] for p in prs]
     return headers, rows
 
 
-async def _po_data(db):
-    pos = await db.pos.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
-    vendors = {v["id"]: v.get("company_name") for v in await db.vendors.find({}, {"_id": 0}).to_list(1000)}
+def _po_data():
+    repo = ReportingNativeRepository()
+    pos = repo.po_report_rows(2000)
     headers = ["No PO", "Tanggal", "Type", "Vendor", "Status", "Shipping", "Invoice", "Total (IDR)", "PR IDs"]
-    rows = [[
-        p.get("po_number"), (p.get("created_at") or "")[:10], p.get("po_type"),
-        vendors.get(p.get("vendor_id"), p.get("vendor_id")), p.get("status"),
-        p.get("shipping_status"), p.get("invoice_status"), _fmt(p.get("total")), ", ".join(p.get("pr_ids") or []),
-    ] for p in pos]
+    rows = [[p[0], p[1], p[2], p[3], p[4], p[5], p[6], _fmt(p[7]), p[8]] for p in pos]
     return headers, rows
 
 
-async def _budget_data(db):
-    budgets = await db.budgets.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
-    depts = {d["id"]: d["name"] for d in await db.departments.find({}, {"_id": 0}).to_list(500)}
-    products = {p["id"]: p["name"] for p in await db.products.find({}, {"_id": 0}).to_list(2000)}
+def _budget_data():
+    repo = ReportingNativeRepository()
+    budgets = repo.budget_report_rows(2000)
     headers = ["Department", "Product", "Periode", "Amount", "Terpakai", "Sisa", "% Terpakai", "Status"]
-    rows = []
-    for b in budgets:
-        amt = float(b.get("amount") or 0)
-        used = float(b.get("used_amount") or 0)
-        pct = (used / amt * 100.0) if amt else 0
-        rows.append([
-            depts.get(b.get("department_id"), "-"),
-            products.get(b.get("product_id"), "SEMUA") if b.get("product_id") else "SEMUA",
-            b.get("period"),
-            _fmt(amt), _fmt(used), _fmt(amt - used), f"{pct:.1f}%", b.get("status"),
-        ])
+    rows = [[b[0], b[1], b[2], _fmt(b[3]), _fmt(b[4]), _fmt(b[5]), b[6], b[7]] for b in budgets]
     return headers, rows
 
 
 @router.get("/prs.csv")
 async def prs_csv(user=Depends(get_current_active_user)):
-    h, r = await _pr_data(get_db())
+    h, r = _pr_data()
     return _csv_response("purchase_requests.csv", h, r)
 
 
 @router.get("/prs.pdf")
 async def prs_pdf(user=Depends(get_current_active_user)):
-    h, r = await _pr_data(get_db())
+    h, r = _pr_data()
     return _pdf_response("purchase_requests.pdf", "Laporan Purchase Requests", h, r)
 
 
 @router.get("/pos.csv")
 async def pos_csv(user=Depends(get_current_active_user)):
-    h, r = await _po_data(get_db())
+    h, r = _po_data()
     return _csv_response("purchase_orders.csv", h, r)
 
 
 @router.get("/pos.pdf")
 async def pos_pdf(user=Depends(get_current_active_user)):
-    h, r = await _po_data(get_db())
+    h, r = _po_data()
     return _pdf_response("purchase_orders.pdf", "Laporan Purchase Orders", h, r)
 
 
 @router.get("/budgets.csv")
 async def budgets_csv(user=Depends(get_current_active_user)):
-    h, r = await _budget_data(get_db())
+    h, r = _budget_data()
     return _csv_response("budget_utilization.csv", h, r)
 
 
 @router.get("/budgets.pdf")
 async def budgets_pdf(user=Depends(get_current_active_user)):
-    h, r = await _budget_data(get_db())
+    h, r = _budget_data()
     return _pdf_response("budget_utilization.pdf", "Budget Utilization Report", h, r)

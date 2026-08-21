@@ -1,0 +1,45 @@
+services:
+  postgres:
+    ports: []
+
+  redis:
+    ports: []
+
+  backend:
+    ports: !reset []
+    expose:
+      - "8000"
+    restart: always
+    environment:
+      FRONTEND_URL: https://${DOMAIN_NAME}
+      JWT_SECRET: ${JWT_SECRET}
+      WEBHOOK_CRON_SECRET: ${WEBHOOK_CRON_SECRET}
+
+  frontend:
+    ports: !reset []
+    expose:
+      - "80"
+    restart: always
+
+  proxy:
+    image: caddy:2.8-alpine
+    restart: always
+    depends_on:
+      backend:
+        condition: service_started
+      frontend:
+        condition: service_started
+    environment:
+      DOMAIN_NAME: ${DOMAIN_NAME}
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./ops/proxy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

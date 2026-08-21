@@ -50,6 +50,9 @@ class ProductIn(BaseModel):
     default_price: float = 0.0
     description: Optional[str] = None
     is_lot_tracked: bool = False
+    is_imported: bool = False
+    is_bonded: bool = False
+    bonded_type: str = "NON_BONDED"
     variants: List[dict] = []
 
 

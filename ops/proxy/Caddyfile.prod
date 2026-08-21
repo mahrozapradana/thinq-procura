@@ -1,0 +1,17 @@
+{
+  email {$ACME_EMAIL}
+}
+
+{$DOMAIN_NAME} {
+  encode zstd gzip
+
+  @api path /api/*
+  reverse_proxy @api backend:8000 {
+    flush_interval -1
+    header_up X-Forwarded-Proto {scheme}
+    header_up X-Forwarded-Host {host}
+    header_up X-Forwarded-For {remote_host}
+  }
+
+  reverse_proxy frontend:80
+}
